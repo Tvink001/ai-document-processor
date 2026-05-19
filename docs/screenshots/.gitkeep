@@ -1,0 +1,7 @@
+# Placeholder so the screenshots/ folder is tracked by git.
+# Replace with:
+#   - demo.gif                (60-sec full cycle: Telegram upload → ZIP reply)
+#   - wow1-smart-retry.png    (escalation log: Haiku confidence < 0.7 → Sonnet)
+#   - wow2-md5-dedup.png      (instant return on repeat file)
+#   - wow3-client-letter.png  (generated draft letter in Telegram)
+#   - architecture.png        (Mermaid render, for non-GitHub readers)

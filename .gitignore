@@ -1,0 +1,46 @@
+# Secrets — never commit
+.env
+.env.local
+.env.*.local
+secrets/
+*.pem
+*-credentials.json
+service-account*.json
+
+# Node / npm (n8n MCP)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# n8n
+.n8n/
+n8n-config.json
+exports/credentials/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# Build / temp
+dist/
+build/
+tmp/
+*.tmp
+
+# Local golden dataset (large binaries — keep references in docs only)
+test-data/
+golden/
+.mcp.json
