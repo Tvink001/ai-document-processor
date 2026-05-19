@@ -1,0 +1,12 @@
+{
+  "name": "p3-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "P3_bot — n8n + Claude API document processor (operator-side tooling only; n8n workflows live on n8n Cloud)",
+  "scripts": {
+    "mcp:n8n": "node ./node_modules/n8n-mcp/dist/mcp/stdio-wrapper.js"
+  },
+  "devDependencies": {
+    "n8n-mcp": "^2.54.0"
+  }
+}

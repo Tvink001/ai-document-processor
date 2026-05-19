@@ -1,0 +1,222 @@
+{
+  "id": "DegFDAfq4HhTX2eU",
+  "name": "P3 — WF01 Receive Files",
+  "active": true,
+  "nodes": [
+    {
+      "id": "node-tg-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.3,
+      "position": [200, 300],
+      "parameters": {
+        "updates": ["message"],
+        "additionalFields": {}
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "awqlBtw3tG6HJGW1",
+          "name": "Telegram account 2"
+        }
+      },
+      "webhookId": "p3-receive"
+    },
+    {
+      "id": "node-compute-session",
+      "name": "Compute Session ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// WF01 / §10 step 2 — derive session_id and normalize file metadata.\nconst msg = $json.message || $json;\nconst chatId = msg.chat && msg.chat.id;\nconst messageId = msg.message_id;\nconst mediaGroupId = msg.media_group_id || null;\nconst sessionId = `${chatId}_${mediaGroupId || messageId}`;\n\nlet file = null;\nif (msg.document) {\n  file = {\n    file_id: msg.document.file_id,\n    file_unique_id: msg.document.file_unique_id,\n    file_name: msg.document.file_name || `doc_${messageId}`,\n    mime_type: msg.document.mime_type || 'application/octet-stream',\n    file_size: msg.document.file_size || 0\n  };\n} else if (Array.isArray(msg.photo) && msg.photo.length > 0) {\n  const largest = msg.photo[msg.photo.length - 1];\n  file = {\n    file_id: largest.file_id,\n    file_unique_id: largest.file_unique_id,\n    file_name: `photo_${messageId}.jpg`,\n    mime_type: 'image/jpeg',\n    file_size: largest.file_size || 0\n  };\n} else {\n  return { json: { skip: true, reason: 'no_document_or_photo' } };\n}\n\nreturn {\n  json: {\n    session_id: sessionId,\n    chat_id: chatId,\n    user_id: msg.from && msg.from.id,\n    username: (msg.from && msg.from.username) || null,\n    message_id: messageId,\n    media_group_id: mediaGroupId,\n    started_at: new Date().toISOString(),\n    file\n  }\n};"
+      }
+    },
+    {
+      "id": "node-wait",
+      "name": "Wait 5s (album buffer)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [700, 300],
+      "parameters": {
+        "amount": 5,
+        "unit": "seconds"
+      },
+      "webhookId": "df8d2de5-daf6-464b-9438-d45ee77da900"
+    },
+    {
+      "id": "node-aggregate",
+      "name": "Aggregate by session_id",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [950, 300],
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "files",
+        "include": "allFields",
+        "options": {}
+      }
+    },
+    {
+      "id": "node-switch",
+      "name": "Switch: files > 6?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [1200, 300],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "rule-too-many",
+                    "leftValue": "={{ ($json.files || []).length }}",
+                    "rightValue": 6,
+                    "operator": {
+                      "type": "number",
+                      "operation": "gt"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "too_many"
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "ok"
+        }
+      }
+    },
+    {
+      "id": "node-tg-toomany",
+      "name": "Telegram: too many files",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1450, 180],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{ ($json.files && $json.files[0] && $json.files[0].chat_id) || '' }}",
+        "text": "Отправь не более 6 файлов за раз — остальные я не обработаю в одной сессии.",
+        "additionalFields": {}
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "awqlBtw3tG6HJGW1",
+          "name": "Telegram account 2"
+        }
+      },
+      "webhookId": "4e618990-fe70-45e4-ad5e-a09520971f0b"
+    },
+    {
+      "id": "node-sheets-session",
+      "name": "Sessions: Append or Update",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [1450, 420],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w",
+          "cachedResultName": "P3_bot Sheet"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "sessions",
+          "cachedResultName": "sessions"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": ["session_id"],
+          "value": {
+            "session_id": "={{ $json.files[0].session_id }}",
+            "user_id": "={{ $json.files[0].user_id }}",
+            "username": "={{ $json.files[0].username }}",
+            "started_at": "={{ $json.files[0].started_at }}",
+            "files_count": "={{ ($json.files || []).length }}",
+            "status": "pending",
+            "completed_at": "",
+            "archive_url": "",
+            "error_count": 0
+          }
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "vPYba8prk7sfff5g",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "node-exec-wf02",
+      "name": "Execute → WF02",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [1700, 420],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "7XllTLmW3Pzchqv6",
+          "cachedResultName": "P3 — WF02-stub"
+        },
+        "mode": "each",
+        "options": {},
+        "workflowInputs": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "schema": [],
+          "matchingColumns": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [[{ "node": "Compute Session ID", "type": "main", "index": 0 }]]
+    },
+    "Compute Session ID": {
+      "main": [[{ "node": "Wait 5s (album buffer)", "type": "main", "index": 0 }]]
+    },
+    "Wait 5s (album buffer)": {
+      "main": [[{ "node": "Aggregate by session_id", "type": "main", "index": 0 }]]
+    },
+    "Aggregate by session_id": {
+      "main": [[{ "node": "Switch: files > 6?", "type": "main", "index": 0 }]]
+    },
+    "Switch: files > 6?": {
+      "main": [
+        [{ "node": "Telegram: too many files", "type": "main", "index": 0 }],
+        [{ "node": "Sessions: Append or Update", "type": "main", "index": 0 }]
+      ]
+    },
+    "Sessions: Append or Update": {
+      "main": [[{ "node": "Execute → WF02", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}
