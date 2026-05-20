@@ -278,7 +278,7 @@
         "operation": "sendMessage",
         "chatId": "={{ ($json.files && $json.files[0] && $json.files[0].chat_id) || '' }}",
         "text": "Отправь не более 6 файлов за раз — остальные я не обработаю в одной сессии.",
-        "additionalFields": {}
+        "additionalFields": { "appendAttribution": false }
       },
       "credentials": { "telegramApi": { "id": "awqlBtw3tG6HJGW1", "name": "Telegram account 2" } },
       "webhookId": "4e618990-fe70-45e4-ad5e-a09520971f0b"

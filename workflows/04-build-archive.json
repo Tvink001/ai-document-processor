@@ -111,7 +111,7 @@
         "operation": "sendMessage",
         "chatId": "={{ $json.chat_id }}",
         "text": "={{ $json.text }}",
-        "additionalFields": { "parse_mode": "HTML" },
+        "additionalFields": { "parse_mode": "HTML", "appendAttribution": false },
         "replyMarkup": "inlineKeyboard",
         "inlineKeyboard": {
           "rows": [{ "row": { "buttons": [{ "text": "Сгенерировать письмо клиенту", "additionalFields": { "callback_data": "={{ $json.callback_data }}" } }] } }]
@@ -131,7 +131,7 @@
         "operation": "sendMessage",
         "chatId": "={{ $json.chat_id }}",
         "text": "={{ $json.text }}",
-        "additionalFields": { "parse_mode": "HTML" },
+        "additionalFields": { "parse_mode": "HTML", "appendAttribution": false },
         "replyMarkup": "none"
       },
       "credentials": { "telegramApi": { "id": "awqlBtw3tG6HJGW1", "name": "Telegram account 2" } },

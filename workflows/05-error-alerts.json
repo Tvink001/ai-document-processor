@@ -71,7 +71,7 @@
         "operation": "sendMessage",
         "chatId": "1410989113",
         "text": "={{ $('Sanitize Payload').first().json.telegram_text }}",
-        "additionalFields": { "parse_mode": "HTML" }
+        "additionalFields": { "parse_mode": "HTML", "appendAttribution": false }
       },
       "credentials": { "telegramApi": { "id": "awqlBtw3tG6HJGW1", "name": "Telegram account 2" } },
       "onError": "continueRegularOutput"
