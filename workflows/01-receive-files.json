@@ -9,16 +9,8 @@
       "type": "n8n-nodes-base.telegramTrigger",
       "typeVersion": 1.3,
       "position": [200, 300],
-      "parameters": {
-        "updates": ["message"],
-        "additionalFields": {}
-      },
-      "credentials": {
-        "telegramApi": {
-          "id": "awqlBtw3tG6HJGW1",
-          "name": "Telegram account 2"
-        }
-      },
+      "parameters": { "updates": ["message"], "additionalFields": {} },
+      "credentials": { "telegramApi": { "id": "awqlBtw3tG6HJGW1", "name": "Telegram account 2" } },
       "webhookId": "p3-receive"
     },
     {
@@ -26,35 +18,81 @@
       "name": "Compute Session ID",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [450, 300],
+      "position": [440, 300],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// WF01 / §10 step 2 — derive session_id and normalize file metadata.\nconst msg = $json.message || $json;\nconst chatId = msg.chat && msg.chat.id;\nconst messageId = msg.message_id;\nconst mediaGroupId = msg.media_group_id || null;\nconst sessionId = `${chatId}_${mediaGroupId || messageId}`;\n\nlet file = null;\nif (msg.document) {\n  file = {\n    file_id: msg.document.file_id,\n    file_unique_id: msg.document.file_unique_id,\n    file_name: msg.document.file_name || `doc_${messageId}`,\n    mime_type: msg.document.mime_type || 'application/octet-stream',\n    file_size: msg.document.file_size || 0\n  };\n} else if (Array.isArray(msg.photo) && msg.photo.length > 0) {\n  const largest = msg.photo[msg.photo.length - 1];\n  file = {\n    file_id: largest.file_id,\n    file_unique_id: largest.file_unique_id,\n    file_name: `photo_${messageId}.jpg`,\n    mime_type: 'image/jpeg',\n    file_size: largest.file_size || 0\n  };\n} else {\n  return { json: { skip: true, reason: 'no_document_or_photo' } };\n}\n\nreturn {\n  json: {\n    session_id: sessionId,\n    chat_id: chatId,\n    user_id: msg.from && msg.from.id,\n    username: (msg.from && msg.from.username) || null,\n    message_id: messageId,\n    media_group_id: mediaGroupId,\n    started_at: new Date().toISOString(),\n    file\n  }\n};"
+        "jsCode": "// WF01 step 2 — derive session_id, normalize file metadata, stamp received_at_ms.\nconst msg = $json.message || $json;\nconst chatId = msg.chat && msg.chat.id;\nconst messageId = msg.message_id;\nconst mediaGroupId = msg.media_group_id || null;\nconst sessionId = `${chatId}_${mediaGroupId || messageId}`;\nconst nowMs = Date.now();\nconst nowIso = new Date(nowMs).toISOString();\n\nlet file = null;\nif (msg.document) {\n  file = {\n    file_id: msg.document.file_id,\n    file_unique_id: msg.document.file_unique_id,\n    file_name: msg.document.file_name || `doc_${messageId}`,\n    mime_type: msg.document.mime_type || 'application/octet-stream',\n    file_size: msg.document.file_size || 0\n  };\n} else if (Array.isArray(msg.photo) && msg.photo.length > 0) {\n  const largest = msg.photo[msg.photo.length - 1];\n  file = {\n    file_id: largest.file_id,\n    file_unique_id: largest.file_unique_id,\n    file_name: `photo_${messageId}.jpg`,\n    mime_type: 'image/jpeg',\n    file_size: largest.file_size || 0\n  };\n} else {\n  return { json: { skip: true, reason: 'no_document_or_photo' } };\n}\n\nreturn {\n  json: {\n    session_id: sessionId,\n    chat_id: chatId,\n    user_id: msg.from && msg.from.id,\n    username: (msg.from && msg.from.username) || null,\n    message_id: messageId,\n    media_group_id: mediaGroupId,\n    started_at: nowIso,\n    received_at_ms: nowMs,\n    received_at_iso: nowIso,\n    file,\n    file_meta_json: JSON.stringify({\n      session_id: sessionId,\n      chat_id: chatId,\n      user_id: msg.from && msg.from.id,\n      username: (msg.from && msg.from.username) || null,\n      message_id: messageId,\n      media_group_id: mediaGroupId,\n      started_at: nowIso,\n      file\n    })\n  }\n};"
       }
     },
     {
+      "id": "node-buffer-append",
+      "name": "_album_buffer: Append",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [680, 300],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": { "__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet" },
+        "sheetName": { "__rl": true, "mode": "name", "value": "_album_buffer", "cachedResultName": "_album_buffer" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "session_id": "={{ $json.session_id }}",
+            "file_id": "={{ $json.file.file_id }}",
+            "file_unique_id": "={{ $json.file.file_unique_id }}",
+            "file_meta_json": "={{ $json.file_meta_json }}",
+            "received_at_ms": "={{ $json.received_at_ms }}",
+            "received_at_iso": "={{ $json.received_at_iso }}",
+            "processed": "false"
+          },
+          "schema": [
+            { "id": "session_id", "type": "string", "display": true, "displayName": "session_id" },
+            { "id": "file_id", "type": "string", "display": true, "displayName": "file_id" },
+            { "id": "file_unique_id", "type": "string", "display": true, "displayName": "file_unique_id" },
+            { "id": "file_meta_json", "type": "string", "display": true, "displayName": "file_meta_json" },
+            { "id": "received_at_ms", "type": "number", "display": true, "displayName": "received_at_ms" },
+            { "id": "received_at_iso", "type": "string", "display": true, "displayName": "received_at_iso" },
+            { "id": "processed", "type": "string", "display": true, "displayName": "processed" }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } }
+    },
+    {
       "id": "node-wait",
-      "name": "Wait 5s (album buffer)",
+      "name": "Wait 7s (album buffer)",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
-      "position": [700, 300],
-      "parameters": {
-        "amount": 5,
-        "unit": "seconds"
-      },
+      "position": [920, 300],
+      "parameters": { "amount": 7, "unit": "seconds" },
       "webhookId": "df8d2de5-daf6-464b-9438-d45ee77da900"
     },
     {
-      "id": "node-aggregate",
-      "name": "Aggregate by session_id",
-      "type": "n8n-nodes-base.aggregate",
-      "typeVersion": 1,
-      "position": [950, 300],
+      "id": "node-buffer-read",
+      "name": "_album_buffer: Read by session_id",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [1160, 300],
       "parameters": {
-        "aggregate": "aggregateAllItemData",
-        "destinationFieldName": "files",
-        "include": "allFields",
-        "options": {}
+        "documentId": { "__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet" },
+        "sheetName": { "__rl": true, "mode": "name", "value": "_album_buffer", "cachedResultName": "_album_buffer" },
+        "filtersUI": { "values": [{ "lookupColumn": "session_id", "lookupValue": "={{ $('Compute Session ID').item.json.session_id }}" }] },
+        "options": { "returnFirstMatch": false }
+      },
+      "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "node-leader-decision",
+      "name": "Leader Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// WF01 step 6 — leader election + album consolidation.\n// Each execution arrives here with the same set of buffer rows for its session.\n// Winner: row with min(received_at_ms), tie-break by file_unique_id ASC.\n// Only the winner returns a payload; others return [] and exit silently.\n\nconst myFile = ($('Compute Session ID').item && $('Compute Session ID').item.json) || {};\nconst mySessionId = myFile.session_id || '';\nconst myFileUniqueId = (myFile.file && myFile.file.file_unique_id) || '';\n\nconst rows = $input.all()\n  .map(i => i.json)\n  .filter(r => r && r.session_id === mySessionId)\n  .filter(r => String(r.processed) !== 'true');\n\nif (rows.length === 0) return [];\n\nrows.sort((a, b) => {\n  const dt = Number(a.received_at_ms) - Number(b.received_at_ms);\n  if (dt !== 0) return dt;\n  return String(a.file_unique_id).localeCompare(String(b.file_unique_id));\n});\n\nconst leader = rows[0];\nconst amILeader = String(leader.file_unique_id) === String(myFileUniqueId);\nif (!amILeader) return [];\n\n// I'm the leader. Build consolidated session payload.\nconst files = rows.map(r => {\n  try { return JSON.parse(r.file_meta_json || '{}'); }\n  catch (e) { return { file_meta_parse_error: true, raw: r.file_meta_json }; }\n});\n\nreturn [{ json: {\n  session_id: mySessionId,\n  files: files,\n  files_count: files.length,\n  leader_file_unique_id: leader.file_unique_id,\n  leader_received_at_ms: leader.received_at_ms\n}}];"
       }
     },
     {
@@ -62,29 +100,15 @@
       "name": "Switch: files > 6?",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.4,
-      "position": [1200, 300],
+      "position": [1640, 300],
       "parameters": {
         "mode": "rules",
         "rules": {
           "values": [
             {
               "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "loose"
-                },
-                "conditions": [
-                  {
-                    "id": "rule-too-many",
-                    "leftValue": "={{ ($json.files || []).length }}",
-                    "rightValue": 6,
-                    "operator": {
-                      "type": "number",
-                      "operation": "gt"
-                    }
-                  }
-                ],
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+                "conditions": [{ "id": "rule-too-many", "leftValue": "={{ ($json.files || []).length }}", "rightValue": 6, "operator": { "type": "number", "operation": "gt" } }],
                 "combinator": "and"
               },
               "renameOutput": true,
@@ -93,10 +117,7 @@
           ]
         },
         "looseTypeValidation": true,
-        "options": {
-          "fallbackOutput": "extra",
-          "renameFallbackOutput": "ok"
-        }
+        "options": { "fallbackOutput": "extra", "renameFallbackOutput": "ok" }
       }
     },
     {
@@ -104,7 +125,7 @@
       "name": "Telegram: too many files",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1450, 180],
+      "position": [1880, 180],
       "parameters": {
         "resource": "message",
         "operation": "sendMessage",
@@ -112,12 +133,7 @@
         "text": "Отправь не более 6 файлов за раз — остальные я не обработаю в одной сессии.",
         "additionalFields": {}
       },
-      "credentials": {
-        "telegramApi": {
-          "id": "awqlBtw3tG6HJGW1",
-          "name": "Telegram account 2"
-        }
-      },
+      "credentials": { "telegramApi": { "id": "awqlBtw3tG6HJGW1", "name": "Telegram account 2" } },
       "webhookId": "4e618990-fe70-45e4-ad5e-a09520971f0b"
     },
     {
@@ -125,22 +141,12 @@
       "name": "Sessions: Append or Update",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
-      "position": [1450, 420],
+      "position": [1880, 420],
       "parameters": {
         "resource": "sheet",
         "operation": "appendOrUpdate",
-        "documentId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w",
-          "cachedResultName": "P3_bot Sheet"
-        },
-        "sheetName": {
-          "__rl": true,
-          "mode": "name",
-          "value": "sessions",
-          "cachedResultName": "sessions"
-        },
+        "documentId": { "__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet" },
+        "sheetName": { "__rl": true, "mode": "name", "value": "sessions", "cachedResultName": "sessions" },
         "columns": {
           "mappingMode": "defineBelow",
           "matchingColumns": ["session_id"],
@@ -158,53 +164,30 @@
         },
         "options": {}
       },
-      "credentials": {
-        "googleSheetsOAuth2Api": {
-          "id": "vPYba8prk7sfff5g",
-          "name": "Google Sheets account"
-        }
-      }
+      "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } }
     },
     {
       "id": "node-exec-wf02",
       "name": "Execute → WF02",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.3,
-      "position": [1700, 420],
+      "position": [2120, 420],
       "parameters": {
         "source": "database",
-        "workflowId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "7XllTLmW3Pzchqv6",
-          "cachedResultName": "P3 — WF02-stub"
-        },
+        "workflowId": { "__rl": true, "mode": "id", "value": "7XllTLmW3Pzchqv6", "cachedResultName": "P3 — WF02 Extract & Classify" },
         "mode": "each",
         "options": {},
-        "workflowInputs": {
-          "mappingMode": "autoMapInputData",
-          "value": {},
-          "schema": [],
-          "matchingColumns": [],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": true
-        }
+        "workflowInputs": { "mappingMode": "autoMapInputData", "value": {}, "schema": [], "matchingColumns": [], "attemptToConvertTypes": false, "convertFieldsToString": true }
       }
     }
   ],
   "connections": {
-    "Telegram Trigger": {
-      "main": [[{ "node": "Compute Session ID", "type": "main", "index": 0 }]]
-    },
-    "Compute Session ID": {
-      "main": [[{ "node": "Wait 5s (album buffer)", "type": "main", "index": 0 }]]
-    },
-    "Wait 5s (album buffer)": {
-      "main": [[{ "node": "Aggregate by session_id", "type": "main", "index": 0 }]]
-    },
-    "Aggregate by session_id": {
-      "main": [[{ "node": "Switch: files > 6?", "type": "main", "index": 0 }]]
-    },
+    "Telegram Trigger": { "main": [[{ "node": "Compute Session ID", "type": "main", "index": 0 }]] },
+    "Compute Session ID": { "main": [[{ "node": "_album_buffer: Append", "type": "main", "index": 0 }]] },
+    "_album_buffer: Append": { "main": [[{ "node": "Wait 7s (album buffer)", "type": "main", "index": 0 }]] },
+    "Wait 7s (album buffer)": { "main": [[{ "node": "_album_buffer: Read by session_id", "type": "main", "index": 0 }]] },
+    "_album_buffer: Read by session_id": { "main": [[{ "node": "Leader Decision", "type": "main", "index": 0 }]] },
+    "Leader Decision": { "main": [[{ "node": "Switch: files > 6?", "type": "main", "index": 0 }]] },
     "Switch: files > 6?": {
       "main": [
         [{ "node": "Telegram: too many files", "type": "main", "index": 0 }],
@@ -215,8 +198,6 @@
       ]
     }
   },
-  "settings": {
-    "executionOrder": "v1"
-  },
+  "settings": { "executionOrder": "v1", "errorWorkflow": "NZ46OvGw49tzN5FS" },
   "tags": []
 }
