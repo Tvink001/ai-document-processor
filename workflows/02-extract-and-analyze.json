@@ -153,10 +153,14 @@
     {
       "id": "node-aggregate-results",
       "name": "Aggregate Results",
-      "type": "n8n-nodes-base.aggregate",
-      "typeVersion": 1,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [1900, 400],
-      "parameters": { "aggregate": "aggregateAllItemData", "destinationFieldName": "results", "include": "allFields", "options": {} }
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// WF02 — collect normalized file results from all MIME branches.\n// executeOnce:true ensures this runs once even when multiple branches converge.\nfunction safeAll(nodeName) {\n  try { return $(nodeName).all().map(i => i.json); }\n  catch (e) { return []; }\n}\nconst allFiles = [\n  ...safeAll('Normalize PDF'),\n  ...safeAll('Normalize DOCX'),\n  ...safeAll('Normalize Image'),\n  ...safeAll('Mark Unsupported')\n];\nreturn [{ json: { results: allFiles } }];"
+      },
+      "executeOnce": true
     },
     {
       "id": "node-read-template",
