@@ -120,7 +120,12 @@ function handleZip(body) {
   }
 
   const folder = DriveApp.getFolderById(folderId);
-  const zipName = 'session_' + sessionId + '.zip';
+  // User-facing ZIP name: timestamped in the script's locale.
+  // Drive supports Unicode in filenames; modern browsers preserve it
+  // through Content-Disposition on download.
+  const tz = Session.getScriptTimeZone();
+  const ts = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd_HH-mm');
+  const zipName = 'Архив_' + ts + '.zip';
   const zipBlob = Utilities.zip(blobs, zipName);
 
   // Overwrite any previous attempt with same name.
