@@ -160,7 +160,18 @@
             "completed_at": "",
             "archive_url": "",
             "error_count": 0
-          }
+          },
+          "schema": [
+            { "id": "session_id", "type": "string", "display": true, "displayName": "session_id", "defaultMatch": true, "canBeUsedToMatch": true },
+            { "id": "user_id", "type": "number", "display": true, "displayName": "user_id" },
+            { "id": "username", "type": "string", "display": true, "displayName": "username" },
+            { "id": "started_at", "type": "string", "display": true, "displayName": "started_at" },
+            { "id": "files_count", "type": "number", "display": true, "displayName": "files_count" },
+            { "id": "status", "type": "string", "display": true, "displayName": "status" },
+            { "id": "completed_at", "type": "string", "display": true, "displayName": "completed_at" },
+            { "id": "archive_url", "type": "string", "display": true, "displayName": "archive_url" },
+            { "id": "error_count", "type": "number", "display": true, "displayName": "error_count" }
+          ]
         },
         "options": {}
       },
