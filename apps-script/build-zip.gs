@@ -3,10 +3,16 @@
  *
  * Routes POST requests to one of two actions:
  *
- *   action = "zip" (default, backwards-compatible with WF04)
- *     Locates files in Drive by name, builds a ZIP, stores it in the
- *     same folder, returns the public URL.
- *     Body: { "session_id": "...", "drive_folder_id": "...", "file_names": ["..."] }
+ *   action = "zip" (default, called from WF04)
+ *     Locates files in Drive by ID (primary) or name (fallback), builds
+ *     a ZIP, stores it in the same folder, returns the public URL.
+ *     Google native files (Doc/Sheet/Slides) are auto-exported as PDF.
+ *     Body: {
+ *       "session_id": "...",
+ *       "drive_folder_id": "...",      // where the ZIP gets written
+ *       "drive_ids": ["..."],          // PRIMARY: Drive file IDs (exact match)
+ *       "file_names": ["..."]          // FALLBACK: used only if drive_ids is empty
+ *     }
  *     Response: { "zip_url": "...", "files_count": N, "missing_files": [...] }
  *
  *   action = "extract_docx" (called from WF02 — see project_specs.md §11.A)
@@ -61,29 +67,59 @@ function doPost(e) {
 function handleZip(body) {
   const sessionId = body.session_id;
   const folderId = body.drive_folder_id;
+  const driveIds = body.drive_ids || [];
   const fileNames = body.file_names || [];
 
-  if (!sessionId || !folderId || fileNames.length === 0) {
-    return jsonResponse({ error: 'missing required fields for zip' });
+  if (!sessionId || !folderId) {
+    return jsonResponse({ error: 'missing session_id or drive_folder_id' });
+  }
+  if (driveIds.length === 0 && fileNames.length === 0) {
+    return jsonResponse({ error: 'no drive_ids or file_names provided' });
   }
 
-  const folder = DriveApp.getFolderById(folderId);
   const blobs = [];
   const missing = [];
 
-  fileNames.forEach(function (name) {
-    const iter = folder.getFilesByName(name);
-    if (iter.hasNext()) {
-      blobs.push(iter.next().getBlob());
-    } else {
-      missing.push(name);
+  // Primary path: file IDs (exact Drive lookup, immune to renames).
+  // Google Docs / Sheets / Slides exported as PDF; raw uploads kept as-is.
+  driveIds.forEach(function (id) {
+    try {
+      const file = DriveApp.getFileById(id);
+      const mime = file.getMimeType();
+      let blob;
+      if (mime === 'application/vnd.google-apps.document') {
+        blob = file.getAs('application/pdf').setName(file.getName() + '.pdf');
+      } else if (mime === 'application/vnd.google-apps.spreadsheet') {
+        blob = file.getAs('application/pdf').setName(file.getName() + '.pdf');
+      } else if (mime === 'application/vnd.google-apps.presentation') {
+        blob = file.getAs('application/pdf').setName(file.getName() + '.pdf');
+      } else {
+        blob = file.getBlob();
+      }
+      blobs.push(blob);
+    } catch (e) {
+      missing.push(id);
     }
   });
+
+  // Fallback path: file names (folder lookup) — only if no IDs were given.
+  if (driveIds.length === 0 && fileNames.length > 0) {
+    const folder = DriveApp.getFolderById(folderId);
+    fileNames.forEach(function (name) {
+      const iter = folder.getFilesByName(name);
+      if (iter.hasNext()) {
+        blobs.push(iter.next().getBlob());
+      } else {
+        missing.push(name);
+      }
+    });
+  }
 
   if (blobs.length === 0) {
     return jsonResponse({ error: 'no files found', missing: missing });
   }
 
+  const folder = DriveApp.getFolderById(folderId);
   const zipName = 'session_' + sessionId + '.zip';
   const zipBlob = Utilities.zip(blobs, zipName);
 
