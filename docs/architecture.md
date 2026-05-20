@@ -241,3 +241,121 @@ v1 explicitly does not support:
 
 These aren't bugs; they're scope. Adding them sensibly is a follow-up
 contract, not a v1 quality issue.
+
+---
+
+## 11. Why n8n + Redis hybrid — where no-code stops being the right tool
+
+The brief is a no-code bot. The bot also has to take a Telegram album
+of 1–6 files and process them as one logical session — one ZIP, one
+report, one reply. That requirement looks innocent and is not. It is
+the hard problem that pushes this project past pure n8n.
+
+**What Telegram actually sends.** When a user sends an "album," Bot API
+delivers each file as a *separate* `Update`. They share a
+`media_group_id` and arrive within ~100ms of each other. n8n's
+Telegram Trigger spawns one workflow execution per Update. So a 5-file
+album means 5 simultaneous WF01 executions, each holding one file, all
+wanting to merge into one session.
+
+This is a classic **fan-in problem.** You need:
+1. A shared place where each execution can record "I am here, here is
+   my file."
+2. An atomic election so exactly one execution becomes the *leader*
+   and proceeds with downstream work — sessions row, WF02, ZIP, reply.
+3. A way for non-leaders to exit without doing anything user-visible.
+
+In a code-first stack you'd reach for Redis in 30 seconds. In n8n, the
+question is whether the built-ins are enough.
+
+**What n8n offers in-process.** Two coordination primitives:
+
+- **`staticData`** — per-workflow KV that survives between executions.
+  The catch: each execution sees a *snapshot* taken at execution
+  start, and the snapshot only persists when the execution *finishes*.
+  Two executions starting at the same millisecond both see the same
+  pre-write state. The race never resolves. Verified empirically.
+- **Sheets append.** Google's Sheets API v4 has `values.append` which
+  is atomic per Google's docs. n8n exposes it as `useAppend: true`.
+  We built this first — it looked clean: each execution appends a row
+  to `_album_buffer`, every execution sleeps 7 seconds, then everyone
+  reads the buffer and sorts by `min(received_at_ms)` to pick a
+  leader. Determinism for free.
+
+  Under album-arrival cadence (sub-second concurrent writes), it lost
+  rows. Reproduced multiple times. The Google docs say "atomic
+  append," but at our write rate the writes silently coalesce —
+  perhaps the append API queues; perhaps spreadsheet versioning races
+  internally; the outcome is the same. Sheets is not a coordination
+  primitive. It is a spreadsheet that you can write to atomically *if
+  you don't write hard enough to find the edges.*
+
+**So we added Redis.** Specifically, Upstash Redis on its free tier
+(10K commands/day, far more than this bot will ever use), accessed
+via its REST API so n8n can talk to it as plain HTTP. Two atomic
+operations carry the whole design:
+
+- `SADD album:<session_id> <file_meta>` — set membership; concurrent
+  callers cannot drop members.
+- `SET lock:<session_id> <file_unique_id> NX EX 30` — atomic lock
+  acquisition. The very first execution to land this gets back
+  `"OK"`; everyone after sees `null`. That is the leader election.
+
+Both keys carry a 30-second TTL. There is no cleanup job. The
+coordination state lives for the duration of one album arrival and
+disappears.
+
+**Then n8n fought back.** Upstash exposes a `/pipeline` endpoint where
+you POST a JSON array of arrays — three Redis commands, three results,
+one round-trip. The body shape `[[\"SET\",...],[\"GET\",...],[\"DEL\",...]]`
+is well-documented and works perfectly from raw `fetch()` in a
+verification script.
+
+It does *not* work from n8n's HTTP Request node. With
+`contentType: "json"` and `specifyBody: "json"`, n8n unwraps the
+outer array and only sends the first sub-array. We reproduced this
+four ways (inline expression, literal JSON, `JSON.stringify`, wrapped
+object). The wire dump from Upstash confirmed: n8n was sending one
+command, getting back one result, and the operator was about to
+conclude that pipelining was broken.
+
+`contentType: "raw"` sends the body correctly — verified by inspecting
+Upstash's response in `_readableState.buffer` — but n8n's downstream
+response parser then refuses to JSON-decode the response, handing the
+next node a raw `IncomingMessage`. Two bugs in different layers,
+combining to make pipelining unusable.
+
+**The pragmatic workaround: path-style URLs.** Upstash also accepts
+each command as a URL path: `POST /sadd/<key>/<member>`,
+`POST /set/<key>/<val>/NX/EX/30`, `GET /smembers/<key>`. One command
+per HTTP node, default JSON response, no body in most cases (and
+when there is, no array-flattening problem). Three HTTP nodes
+instead of one pipeline. Latency cost ~150ms — negligible against the
+7-second album-arrival wait we already have to do.
+
+**What the operator gets from this.**
+
+| Property | Pre-Redis (Sheets v1) | Post-Redis (v2) |
+|---|---|---|
+| Concurrent writes safe | No (silent row loss observed) | Yes (SADD is atomic) |
+| Leader election | Sort by `min(received_at_ms)` — depends on reads not losing rows | Atomic SET NX EX — Redis guarantees uniqueness |
+| Coordination state TTL | Manual cleanup deferred to v2 | 30-second TTL, automatic |
+| Failure mode | Silent (lost rows looked like late files) | Loud (failed HTTP retry → degraded flag → `_errors` log + single-file fallback) |
+| Cost / month | $0 | $0 (Upstash free tier covers this 1000×) |
+| Added nodes | — | +6 nodes (4 HTTP, 2 Code) |
+
+**The portfolio takeaway.** Most n8n tutorials sell the platform as
+"you'll never need code." This bot proves the stronger version: the
+real value of being a competent n8n integrator is knowing **when not
+to.** When the in-platform primitives don't match the problem (here:
+race-safe fan-in), reach for the right tool, integrate it cleanly via
+HTTP, and document why. That decision — Sheets → Redis — is the
+single most defensible architectural move in this project.
+
+What we did *not* do: rewrite the whole bot in Python. We didn't have
+to. n8n is still doing 95% of the work — webhook handling, file
+download, AI orchestration, Sheets I/O, Drive I/O, Apps Script
+invocation, error trigger, Telegram reply. Redis is 5% of the system
+and 100% of the album coordination. That ratio is the answer to "is
+n8n still the right tool?" — yes, when paired with the right
+external primitive.

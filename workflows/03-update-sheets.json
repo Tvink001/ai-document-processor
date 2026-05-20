@@ -3,21 +3,254 @@
   "name": "P3 — WF03 Update Sheets & Drive",
   "active": true,
   "nodes": [
-    { "id": "node-wf03-trigger", "name": "When called by WF02", "type": "n8n-nodes-base.executeWorkflowTrigger", "typeVersion": 1.1, "position": [200, 300], "parameters": { "inputSource": "passthrough" } },
-    { "id": "node-expand-results", "name": "Expand Results", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [440, 300], "parameters": { "mode": "runOnceForAllItems", "jsCode": "// WF03 step 1 — expand WF02's results[] into N items, one per file.\nconst inp = $input.first() && $input.first().json;\nif (!inp) return [];\nconst results = inp.results || [];\nreturn results.map(r => ({ json: r }));" } },
-    { "id": "node-tg-download-for-drive", "name": "Telegram: Re-Download for Drive", "type": "n8n-nodes-base.telegram", "typeVersion": 1.2, "position": [680, 300], "parameters": { "resource": "file", "operation": "get", "fileId": "={{ $json.file_id }}", "download": true, "additionalFields": {} }, "credentials": { "telegramApi": { "id": "awqlBtw3tG6HJGW1", "name": "Telegram account 2" } }, "onError": "continueRegularOutput" },
-    { "id": "node-compute-md5", "name": "Compute MD5", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [920, 300], "parameters": { "mode": "runOnceForEachItem", "jsCode": "// WF03 — md5 of binary CONTENT. Pull original file metadata from Expand Results\n// (Telegram Re-Download's output replaces $json with {ok, result}, dropping our fields).\nconst crypto = require('crypto');\nconst meta = $('Expand Results').item.json;\nlet hash = '';\nlet fsize = 0;\ntry {\n  if ($binary && $binary.data) {\n    const buffer = await this.helpers.getBinaryDataBuffer($itemIndex, 'data');\n    hash = crypto.createHash('md5').update(buffer).digest('hex');\n    fsize = ($binary.data.bytes && Number($binary.data.bytes)) || buffer.length;\n  } else {\n    const fuid = meta.file_unique_id || '';\n    hash = crypto.createHash('md5').update(fuid + '_no_binary').digest('hex');\n  }\n} catch (e) {\n  hash = 'md5_compute_failed';\n}\nreturn { json: { ...meta, file_md5: hash, file_size: fsize }, binary: $binary };" } },
-    { "id": "node-read-docs-by-md5", "name": "Read Documents by MD5", "type": "n8n-nodes-base.googleSheets", "typeVersion": 4.7, "position": [1160, 300], "parameters": { "documentId": { "__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet" }, "sheetName": { "__rl": true, "mode": "name", "value": "documents", "cachedResultName": "documents" }, "filtersUI": { "values": [{ "lookupColumn": "file_md5", "lookupValue": "={{ $json.file_md5 }}" }] }, "options": { "returnFirstMatch": false } }, "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } }, "onError": "continueRegularOutput", "alwaysOutputData": true },
-    { "id": "node-check-dedup", "name": "Check Dedup", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [1400, 300], "parameters": { "mode": "runOnceForAllItems", "jsCode": "// WF03 — pair Sheets-read matches back to our N file items, preserve binary.\nconst sheetRows = $input.all().map(i => i.json);\nconst fileItems = $('Compute MD5').all();\n\nconst byMd5 = {};\nfor (const r of sheetRows) {\n  if (r && r.file_md5) {\n    (byMd5[r.file_md5] = byMd5[r.file_md5] || []).push(r);\n  }\n}\n\nreturn fileItems.map(f => {\n  const matches = byMd5[f.json.file_md5] || [];\n  const dedup_hit = matches.length > 0;\n  const existing = dedup_hit ? matches[0] : null;\n  return {\n    json: { ...f.json, dedup_hit, existing_drive_url: existing ? existing.drive_url : null, existing_detected_type: existing ? existing.detected_type : null },\n    binary: f.binary\n  };\n});" } },
-    { "id": "node-if-dedup", "name": "IF dedup_hit?", "type": "n8n-nodes-base.if", "typeVersion": 2.3, "position": [1640, 300], "parameters": { "conditions": { "options": { "version": 2, "leftValue": "", "caseSensitive": true, "typeValidation": "loose" }, "combinator": "and", "conditions": [{ "id": "rule-dedup", "leftValue": "={{ $json.dedup_hit }}", "rightValue": "", "operator": { "type": "boolean", "operation": "true", "singleValue": true } }] }, "options": {} } },
-    { "id": "node-carry-over", "name": "Carry Over (dedup hit)", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [1880, 180], "parameters": { "mode": "runOnceForEachItem", "jsCode": "// WF03 dedup hit — reuse existing drive_url, mark for documents append.\nreturn { json: { ...$json, drive_url: $json.existing_drive_url, drive_skipped: true, processed_at: new Date().toISOString() } };" } },
-    { "id": "node-build-filename", "name": "Build Filename", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [1880, 420], "parameters": { "mode": "runOnceForEachItem", "jsCode": "// WF03 — compose Drive filename.\n// Prefer structured naming (<date>_<type>_<num>.<ext>) when we have a known\n// type AND at least one real metadata field. Otherwise fall back to the\n// original Telegram filename for human readability.\n// CRITICAL: preserve $binary for the Drive Upload downstream.\nconst meta = $('Check Dedup').item.json;\n\nconst mime = meta.mime_type || '';\nlet ext = 'bin';\nif (mime === 'application/pdf') ext = 'pdf';\nelse if (mime.indexOf('wordprocessingml') !== -1) ext = 'docx';\nelse if (mime === 'image/jpeg') ext = 'jpg';\nelse if (mime === 'image/png') ext = 'png';\n\nconst dateRaw = meta.date && /^\\d{4}/.test(String(meta.date)) ? String(meta.date) : null;\nconst typeRaw = (meta.detected_type && meta.detected_type !== 'unknown') ? meta.detected_type : null;\nconst numRaw  = (meta.number && String(meta.number) !== '0' && String(meta.number) !== 'null') ? String(meta.number) : null;\n\nlet outName;\nif (typeRaw && (dateRaw || numRaw)) {\n  const datePart = dateRaw || 'nodate';\n  const numPart  = numRaw  || (meta.file_id ? String(meta.file_id).slice(-8) : 'noid');\n  outName = `${datePart}_${typeRaw}_${numPart}.${ext}`;\n} else {\n  const orig = meta.file_name || `file_${meta.file_id ? String(meta.file_id).slice(-8) : 'noid'}.${ext}`;\n  const base = String(orig).replace(/\\.[^./\\\\]+$/, '');\n  outName = `${base}.${ext}`;\n}\n\n// Allow Latin + digits + safe punctuation + Cyrillic. Other chars → underscore.\nconst safe = outName.replace(/[^A-Za-z0-9._\\-\\u0400-\\u04ff]/g, '_');\n\nreturn { json: { ...$json, filename: safe, _meta_passthrough: meta }, binary: $binary };" } },
-    { "id": "node-drive-upload", "name": "Drive: Upload", "type": "n8n-nodes-base.googleDrive", "typeVersion": 3, "position": [2120, 420], "parameters": { "resource": "file", "operation": "upload", "name": "={{ $json.filename }}", "inputDataFieldName": "data", "driveId": { "__rl": true, "mode": "list", "value": "My Drive", "cachedResultName": "My Drive" }, "folderId": { "__rl": true, "mode": "id", "value": "1OvuG8ZTHlvF375Oj0GscdtH0nH8iadRU", "cachedResultName": "P3_bot Archive" }, "options": {} }, "credentials": { "googleDriveOAuth2Api": { "id": "WriOvqVONCdAUwWt", "name": "Google Drive account" } }, "onError": "continueRegularOutput" },
-    { "id": "node-build-new-row", "name": "Build New Row (upload done)", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [2360, 420], "parameters": { "mode": "runOnceForEachItem", "jsCode": "// WF03 — take Drive upload response, attach drive_url, hand off to Sheets append.\nconst meta = $('Build Filename').item.json._meta_passthrough || $('Check Dedup').item.json;\nconst driveResp = $json;\nconst webViewLink = driveResp.webViewLink || (driveResp.id ? `https://drive.google.com/file/d/${driveResp.id}/view` : null);\nreturn { json: { ...meta, drive_url: webViewLink, drive_skipped: false, processed_at: new Date().toISOString() } };" } },
-    { "id": "node-sheets-append-doc", "name": "Documents: Append or Update", "type": "n8n-nodes-base.googleSheets", "typeVersion": 4.7, "position": [2600, 300], "parameters": { "resource": "sheet", "operation": "appendOrUpdate", "documentId": { "__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet" }, "sheetName": { "__rl": true, "mode": "name", "value": "documents", "cachedResultName": "documents" }, "columns": { "mappingMode": "defineBelow", "matchingColumns": ["session_id", "file_id"], "value": { "session_id": "={{ $json.session_id }}", "file_id": "={{ $json.file_id }}", "file_name": "={{ $json.file_name }}", "file_md5": "={{ $json.file_md5 }}", "detected_type": "={{ $json.detected_type }}", "date": "={{ $json.date || '' }}", "number": "={{ $json.number || '' }}", "amount": "={{ $json.amount !== null && $json.amount !== undefined ? $json.amount : '' }}", "contractor": "={{ $json.contractor || '' }}", "confidence": "={{ $json.confidence }}", "model_used": "={{ $json.model_used || '' }}", "drive_url": "={{ $json.drive_url || '' }}", "processed_at": "={{ $json.processed_at }}" }, "schema": [{ "id": "session_id", "type": "string", "display": true, "displayName": "session_id", "defaultMatch": true, "canBeUsedToMatch": true }, { "id": "file_id", "type": "string", "display": true, "displayName": "file_id", "canBeUsedToMatch": true }, { "id": "file_name", "type": "string", "display": true, "displayName": "file_name" }, { "id": "file_md5", "type": "string", "display": true, "displayName": "file_md5" }, { "id": "detected_type", "type": "string", "display": true, "displayName": "detected_type" }, { "id": "date", "type": "string", "display": true, "displayName": "date" }, { "id": "number", "type": "string", "display": true, "displayName": "number" }, { "id": "amount", "type": "number", "display": true, "displayName": "amount" }, { "id": "contractor", "type": "string", "display": true, "displayName": "contractor" }, { "id": "confidence", "type": "number", "display": true, "displayName": "confidence" }, { "id": "model_used", "type": "string", "display": true, "displayName": "model_used" }, { "id": "drive_url", "type": "string", "display": true, "displayName": "drive_url" }, { "id": "processed_at", "type": "string", "display": true, "displayName": "processed_at" }] }, "options": {} }, "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } }, "onError": "continueRegularOutput" },
-    { "id": "node-aggregate-docs", "name": "Aggregate Per Session", "type": "n8n-nodes-base.aggregate", "typeVersion": 1, "position": [2840, 300], "parameters": { "aggregate": "aggregateAllItemData", "destinationFieldName": "documents", "include": "allFields", "options": {} } },
-    { "id": "node-sheets-update-session", "name": "Sessions: Update Status", "type": "n8n-nodes-base.googleSheets", "typeVersion": 4.7, "position": [3080, 300], "parameters": { "resource": "sheet", "operation": "update", "documentId": { "__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet" }, "sheetName": { "__rl": true, "mode": "name", "value": "sessions", "cachedResultName": "sessions" }, "columns": { "mappingMode": "defineBelow", "matchingColumns": ["session_id"], "value": { "session_id": "={{ $json.documents[0].session_id }}", "status": "archiving", "error_count": "={{ ($json.documents || []).filter(d => d.error).length }}" }, "schema": [{ "id": "session_id", "type": "string", "display": true, "displayName": "session_id", "defaultMatch": true, "canBeUsedToMatch": true }, { "id": "status", "type": "string", "display": true, "displayName": "status" }, { "id": "error_count", "type": "number", "display": true, "displayName": "error_count" }] }, "options": {} }, "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } }, "onError": "continueRegularOutput" },
-    { "id": "node-exec-wf04", "name": "Execute → WF04", "type": "n8n-nodes-base.executeWorkflow", "typeVersion": 1.3, "position": [3320, 300], "parameters": { "source": "database", "workflowId": { "__rl": true, "mode": "id", "value": "km6hEXcuWuwbKYxu", "cachedResultName": "P3 — WF04-stub" }, "mode": "once", "options": {}, "workflowInputs": { "mappingMode": "autoMapInputData", "value": {}, "schema": [], "matchingColumns": [], "attemptToConvertTypes": false, "convertFieldsToString": false } } }
+    {
+      "id": "node-wf03-trigger",
+      "name": "When called by WF02",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [200, 300],
+      "parameters": { "inputSource": "passthrough" }
+    },
+    {
+      "id": "node-expand-results",
+      "name": "Expand Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// WF03 step 1 — expand WF02's results[] into N items, one per file.\nconst inp = $input.first() && $input.first().json;\nif (!inp) return [];\nconst results = inp.results || [];\nreturn results.map(r => ({ json: r }));"
+      }
+    },
+    {
+      "id": "node-tg-download-for-drive",
+      "name": "Telegram: Re-Download for Drive",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [680, 300],
+      "parameters": { "resource": "file", "operation": "get", "fileId": "={{ $json.file_id }}", "download": true, "additionalFields": {} },
+      "credentials": { "telegramApi": { "id": "awqlBtw3tG6HJGW1", "name": "Telegram account 2" } },
+      "onError": "continueRegularOutput",
+      "webhookId": "994a6bbb-9f1d-48a6-8ae0-fafa59d3b7e7"
+    },
+    {
+      "id": "node-compute-md5",
+      "name": "Compute MD5",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [920, 300],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// WF03 — md5 of binary CONTENT. Pull original file metadata from Expand Results\n// (Telegram Re-Download's output replaces $json with {ok, result}, dropping our fields).\nconst crypto = require('crypto');\nconst meta = $('Expand Results').item.json;\nlet hash = '';\nlet fsize = 0;\ntry {\n  if ($binary && $binary.data) {\n    const buffer = await this.helpers.getBinaryDataBuffer($itemIndex, 'data');\n    hash = crypto.createHash('md5').update(buffer).digest('hex');\n    fsize = ($binary.data.bytes && Number($binary.data.bytes)) || buffer.length;\n  } else {\n    const fuid = meta.file_unique_id || '';\n    hash = crypto.createHash('md5').update(fuid + '_no_binary').digest('hex');\n  }\n} catch (e) {\n  hash = 'md5_compute_failed';\n}\nreturn { json: { ...meta, file_md5: hash, file_size: fsize }, binary: $binary };"
+      }
+    },
+    {
+      "id": "node-read-docs-by-md5",
+      "name": "Read Documents by MD5",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [1160, 300],
+      "parameters": {
+        "documentId": { "__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet" },
+        "sheetName": { "__rl": true, "mode": "name", "value": "documents", "cachedResultName": "documents" },
+        "filtersUI": { "values": [{ "lookupColumn": "file_md5", "lookupValue": "={{ $json.file_md5 }}" }] },
+        "options": { "returnFirstMatch": false }
+      },
+      "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "node-check-dedup",
+      "name": "Check Dedup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// WF03 — pair Sheets-read matches back to our N file items, preserve binary.\nconst sheetRows = $input.all().map(i => i.json);\nconst fileItems = $('Compute MD5').all();  // full items including binary\n\nconst byMd5 = {};\nfor (const r of sheetRows) {\n  if (r && r.file_md5) {\n    (byMd5[r.file_md5] = byMd5[r.file_md5] || []).push(r);\n  }\n}\n\nreturn fileItems.map(f => {\n  const matches = byMd5[f.json.file_md5] || [];\n  const dedup_hit = matches.length > 0;\n  const existing = dedup_hit ? matches[0] : null;\n  return {\n    json: {\n      ...f.json,\n      dedup_hit,\n      existing_drive_url: existing ? existing.drive_url : null,\n      existing_detected_type: existing ? existing.detected_type : null\n    },\n    binary: f.binary\n  };\n});"
+      }
+    },
+    {
+      "id": "node-if-dedup",
+      "name": "IF dedup_hit?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [1640, 300],
+      "parameters": {
+        "conditions": {
+          "options": { "version": 2, "leftValue": "", "caseSensitive": true, "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [{ "id": "rule-dedup", "leftValue": "={{ $json.dedup_hit }}", "rightValue": "", "operator": { "type": "boolean", "operation": "true", "singleValue": true } }]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-carry-over",
+      "name": "Carry Over (dedup hit)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1880, 180],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// WF03 dedup hit — reuse existing drive_url, mark for documents append.\nreturn { json: { ...$json, drive_url: $json.existing_drive_url, drive_skipped: true, processed_at: new Date().toISOString() } };"
+      }
+    },
+    {
+      "id": "node-build-filename",
+      "name": "Build Filename",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1880, 420],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// WF03 — compose Drive filename.\n// Prefer structured naming (<date>_<type>_<num>.<ext>) when we have a known\n// type AND at least one real metadata field. Otherwise fall back to the\n// original Telegram filename for human readability.\n// CRITICAL: preserve $binary for the Drive Upload downstream.\nconst meta = $('Check Dedup').item.json;\n\nconst mime = meta.mime_type || '';\nlet ext = 'bin';\nif (mime === 'application/pdf') ext = 'pdf';\nelse if (mime.indexOf('wordprocessingml') !== -1) ext = 'docx';\nelse if (mime === 'image/jpeg') ext = 'jpg';\nelse if (mime === 'image/png') ext = 'png';\n\nconst dateRaw = meta.date && /^\\d{4}/.test(String(meta.date)) ? String(meta.date) : null;\nconst typeRaw = (meta.detected_type && meta.detected_type !== 'unknown') ? meta.detected_type : null;\nconst numRaw  = (meta.number && String(meta.number) !== '0' && String(meta.number) !== 'null') ? String(meta.number) : null;\n\nlet outName;\nif (typeRaw && (dateRaw || numRaw)) {\n  const datePart = dateRaw || 'nodate';\n  const numPart  = numRaw  || (meta.file_id ? String(meta.file_id).slice(-8) : 'noid');\n  outName = `${datePart}_${typeRaw}_${numPart}.${ext}`;\n} else {\n  const orig = meta.file_name || `file_${meta.file_id ? String(meta.file_id).slice(-8) : 'noid'}.${ext}`;\n  const base = String(orig).replace(/\\.[^./\\\\]+$/, '');\n  outName = `${base}.${ext}`;\n}\n\nconst safe = outName.replace(/[^A-Za-z0-9._\\-Ѐ-ӿ]/g, '_');\n\nreturn { json: { ...$json, filename: safe, _meta_passthrough: meta }, binary: $binary };"
+      }
+    },
+    {
+      "id": "node-drive-upload",
+      "name": "Drive: Upload",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [2120, 420],
+      "parameters": {
+        "resource": "file",
+        "operation": "upload",
+        "name": "={{ $json.filename }}",
+        "inputDataFieldName": "data",
+        "driveId": { "__rl": true, "mode": "list", "value": "My Drive", "cachedResultName": "My Drive" },
+        "folderId": { "__rl": true, "mode": "id", "value": "1OvuG8ZTHlvF375Oj0GscdtH0nH8iadRU", "cachedResultName": "P3_bot Archive" },
+        "options": {}
+      },
+      "onError": "continueRegularOutput",
+      "credentials": { "googleDriveOAuth2Api": { "id": "WriOvqVONCdAUwWt", "name": "Google Drive account" } }
+    },
+    {
+      "id": "node-build-new-row",
+      "name": "Build New Row (upload done)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2360, 420],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// WF03 — take Drive upload response, attach drive_url, hand off to Sheets append.\nconst meta = $('Build Filename').item.json._meta_passthrough || $('Check Dedup').item.json;\nconst driveResp = $json;\nconst webViewLink = driveResp.webViewLink || (driveResp.id ? `https://drive.google.com/file/d/${driveResp.id}/view` : null);\nreturn { json: { ...meta, drive_url: webViewLink, drive_skipped: false, processed_at: new Date().toISOString() } };"
+      }
+    },
+    {
+      "id": "node-merge-dedup-upload",
+      "name": "Merge Dedup+Upload",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [2480, 300],
+      "parameters": { "mode": "append" }
+    },
+    {
+      "id": "node-sheets-append-doc",
+      "name": "Documents: Append or Update",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [2600, 300],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "appendOrUpdate",
+        "documentId": { "__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet" },
+        "sheetName": { "__rl": true, "mode": "name", "value": "documents", "cachedResultName": "documents" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": ["session_id", "file_id"],
+          "value": {
+            "session_id": "={{ $json.session_id }}",
+            "file_id": "={{ $json.file_id }}",
+            "file_name": "={{ $json.file_name }}",
+            "file_md5": "={{ $json.file_md5 }}",
+            "detected_type": "={{ $json.detected_type }}",
+            "date": "={{ $json.date || '' }}",
+            "number": "={{ $json.number || '' }}",
+            "amount": "={{ $json.amount !== null && $json.amount !== undefined ? $json.amount : '' }}",
+            "contractor": "={{ $json.contractor || '' }}",
+            "confidence": "={{ $json.confidence }}",
+            "model_used": "={{ $json.model_used || '' }}",
+            "drive_url": "={{ $json.drive_url || '' }}",
+            "processed_at": "={{ $json.processed_at }}"
+          },
+          "schema": [
+            { "id": "session_id", "type": "string", "display": true, "required": false, "displayName": "session_id", "defaultMatch": true, "canBeUsedToMatch": true },
+            { "id": "file_id", "type": "string", "display": true, "required": false, "displayName": "file_id", "defaultMatch": false, "canBeUsedToMatch": true },
+            { "id": "file_name", "type": "string", "display": true, "required": false, "displayName": "file_name", "defaultMatch": false, "canBeUsedToMatch": false },
+            { "id": "file_md5", "type": "string", "display": true, "required": false, "displayName": "file_md5", "defaultMatch": false, "canBeUsedToMatch": false },
+            { "id": "detected_type", "type": "string", "display": true, "required": false, "displayName": "detected_type", "defaultMatch": false, "canBeUsedToMatch": false },
+            { "id": "date", "type": "string", "display": true, "required": false, "displayName": "date", "defaultMatch": false, "canBeUsedToMatch": false },
+            { "id": "number", "type": "string", "display": true, "required": false, "displayName": "number", "defaultMatch": false, "canBeUsedToMatch": false },
+            { "id": "amount", "type": "number", "display": true, "required": false, "displayName": "amount", "defaultMatch": false, "canBeUsedToMatch": false },
+            { "id": "contractor", "type": "string", "display": true, "required": false, "displayName": "contractor", "defaultMatch": false, "canBeUsedToMatch": false },
+            { "id": "confidence", "type": "number", "display": true, "required": false, "displayName": "confidence", "defaultMatch": false, "canBeUsedToMatch": false },
+            { "id": "model_used", "type": "string", "display": true, "required": false, "displayName": "model_used", "defaultMatch": false, "canBeUsedToMatch": false },
+            { "id": "drive_url", "type": "string", "display": true, "required": false, "displayName": "drive_url", "defaultMatch": false, "canBeUsedToMatch": false },
+            { "id": "processed_at", "type": "string", "display": true, "required": false, "displayName": "processed_at", "defaultMatch": false, "canBeUsedToMatch": false }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "node-aggregate-docs",
+      "name": "Aggregate Per Session",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [2840, 300],
+      "parameters": { "aggregate": "aggregateAllItemData", "destinationFieldName": "documents", "include": "allFields", "options": {} }
+    },
+    {
+      "id": "node-sheets-update-session",
+      "name": "Sessions: Update Status",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [3080, 300],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": { "__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet" },
+        "sheetName": { "__rl": true, "mode": "name", "value": "sessions", "cachedResultName": "sessions" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": ["session_id"],
+          "value": {
+            "session_id": "={{ $json.documents[0].session_id }}",
+            "status": "archiving",
+            "error_count": "={{ ($json.documents || []).filter(d => d.error).length }}"
+          },
+          "schema": [
+            { "id": "session_id", "type": "string", "display": true, "required": false, "displayName": "session_id", "defaultMatch": true, "canBeUsedToMatch": true },
+            { "id": "status", "type": "string", "display": true, "required": false, "displayName": "status", "defaultMatch": false, "canBeUsedToMatch": false },
+            { "id": "error_count", "type": "number", "display": true, "required": false, "displayName": "error_count", "defaultMatch": false, "canBeUsedToMatch": false }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "node-exec-wf04",
+      "name": "Execute → WF04",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [3320, 300],
+      "parameters": {
+        "source": "database",
+        "workflowId": { "__rl": true, "mode": "id", "value": "km6hEXcuWuwbKYxu", "cachedResultName": "P3 — WF04 Build Archive & Reply" },
+        "mode": "once",
+        "options": {},
+        "workflowInputs": { "mappingMode": "autoMapInputData", "value": {}, "schema": [], "matchingColumns": [], "attemptToConvertTypes": false, "convertFieldsToString": false }
+      }
+    }
   ],
   "connections": {
     "When called by WF02": { "main": [[{ "node": "Expand Results", "type": "main", "index": 0 }]] },
@@ -26,15 +259,21 @@
     "Compute MD5": { "main": [[{ "node": "Read Documents by MD5", "type": "main", "index": 0 }]] },
     "Read Documents by MD5": { "main": [[{ "node": "Check Dedup", "type": "main", "index": 0 }]] },
     "Check Dedup": { "main": [[{ "node": "IF dedup_hit?", "type": "main", "index": 0 }]] },
-    "IF dedup_hit?": { "main": [[{ "node": "Carry Over (dedup hit)", "type": "main", "index": 0 }], [{ "node": "Build Filename", "type": "main", "index": 0 }]] },
-    "Carry Over (dedup hit)": { "main": [[{ "node": "Documents: Append or Update", "type": "main", "index": 0 }]] },
+    "IF dedup_hit?": {
+      "main": [
+        [{ "node": "Carry Over (dedup hit)", "type": "main", "index": 0 }],
+        [{ "node": "Build Filename", "type": "main", "index": 0 }]
+      ]
+    },
+    "Carry Over (dedup hit)": { "main": [[{ "node": "Merge Dedup+Upload", "type": "main", "index": 0 }]] },
     "Build Filename": { "main": [[{ "node": "Drive: Upload", "type": "main", "index": 0 }]] },
     "Drive: Upload": { "main": [[{ "node": "Build New Row (upload done)", "type": "main", "index": 0 }]] },
-    "Build New Row (upload done)": { "main": [[{ "node": "Documents: Append or Update", "type": "main", "index": 0 }]] },
+    "Build New Row (upload done)": { "main": [[{ "node": "Merge Dedup+Upload", "type": "main", "index": 1 }]] },
+    "Merge Dedup+Upload": { "main": [[{ "node": "Documents: Append or Update", "type": "main", "index": 0 }]] },
     "Documents: Append or Update": { "main": [[{ "node": "Aggregate Per Session", "type": "main", "index": 0 }]] },
     "Aggregate Per Session": { "main": [[{ "node": "Sessions: Update Status", "type": "main", "index": 0 }]] },
     "Sessions: Update Status": { "main": [[{ "node": "Execute → WF04", "type": "main", "index": 0 }]] }
   },
-  "settings": { "executionOrder": "v1" },
+  "settings": { "executionOrder": "v1", "errorWorkflow": "NZ46OvGw49tzN5FS" },
   "tags": []
 }
