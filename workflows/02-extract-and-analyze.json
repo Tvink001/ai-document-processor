@@ -264,6 +264,20 @@
       "onError": "continueRegularOutput"
     },
     {
+      "id": "node-exec-wf03",
+      "name": "Execute → WF03",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [4150, 400],
+      "parameters": {
+        "source": "database",
+        "workflowId": { "__rl": true, "mode": "id", "value": "BgMRQbJP3XWaZrge", "cachedResultName": "P3 — WF03 Update Sheets & Drive" },
+        "mode": "once",
+        "options": {},
+        "workflowInputs": { "mappingMode": "autoMapInputData", "value": {}, "schema": [], "matchingColumns": [], "attemptToConvertTypes": false, "convertFieldsToString": false }
+      }
+    },
+    {
       "id": "node-merge-sonnet",
       "name": "Merge Sonnet Results",
       "type": "n8n-nodes-base.code",
@@ -300,9 +314,15 @@
     "Build Haiku Request": { "main": [[{ "node": "Claude Haiku (classify)", "type": "main", "index": 0 }]] },
     "Claude Haiku (classify)": { "main": [[{ "node": "Parse Haiku + Check Retry", "type": "main", "index": 0 }]] },
     "Parse Haiku + Check Retry": { "main": [[{ "node": "IF needs_retry?", "type": "main", "index": 0 }]] },
-    "IF needs_retry?": { "main": [[{ "node": "Build Sonnet Request", "type": "main", "index": 0 }]] },
+    "IF needs_retry?": {
+      "main": [
+        [{ "node": "Build Sonnet Request", "type": "main", "index": 0 }],
+        [{ "node": "Execute → WF03", "type": "main", "index": 0 }]
+      ]
+    },
     "Build Sonnet Request": { "main": [[{ "node": "Claude Sonnet (retry)", "type": "main", "index": 0 }]] },
-    "Claude Sonnet (retry)": { "main": [[{ "node": "Merge Sonnet Results", "type": "main", "index": 0 }]] }
+    "Claude Sonnet (retry)": { "main": [[{ "node": "Merge Sonnet Results", "type": "main", "index": 0 }]] },
+    "Merge Sonnet Results": { "main": [[{ "node": "Execute → WF03", "type": "main", "index": 0 }]] }
   },
   "settings": { "executionOrder": "v1" },
   "tags": []

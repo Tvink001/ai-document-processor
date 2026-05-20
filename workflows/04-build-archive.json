@@ -1,0 +1,41 @@
+{
+  "id": "km6hEXcuWuwbKYxu",
+  "name": "P3 — WF04-stub",
+  "active": true,
+  "nodes": [
+    {
+      "id": "node-wf04-trigger",
+      "name": "When called by WF03",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [200, 300],
+      "parameters": { "inputSource": "passthrough" }
+    },
+    {
+      "id": "node-wf04-set",
+      "name": "Set stub status",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [450, 300],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            { "id": "a1", "name": "stub_status", "value": "wf04_called", "type": "string" },
+            { "id": "a2", "name": "received_session_id", "value": "={{ $json.session_id || ($json.results && $json.results[0] && $json.results[0].session_id) || 'unknown' }}", "type": "string" },
+            { "id": "a3", "name": "received_files_count", "value": "={{ ($json.results || []).length }}", "type": "number" }
+          ]
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "When called by WF03": {
+      "main": [[{ "node": "Set stub status", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": []
+}
