@@ -109,11 +109,11 @@
     },
     {
       "id": "node-wait",
-      "name": "Wait 7s (album buffer)",
+      "name": "Wait 10s (album buffer)",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
       "position": [1520, 300],
-      "parameters": { "amount": 7, "unit": "seconds" },
+      "parameters": { "amount": 10, "unit": "seconds" },
       "webhookId": "df8d2de5-daf6-464b-9438-d45ee77da900"
     },
     {
@@ -345,8 +345,8 @@
     "HTTP: SADD album": { "main": [[{ "node": "HTTP: EXPIRE album", "type": "main", "index": 0 }]] },
     "HTTP: EXPIRE album": { "main": [[{ "node": "HTTP: TRY LOCK", "type": "main", "index": 0 }]] },
     "HTTP: TRY LOCK": { "main": [[{ "node": "Decide Leader", "type": "main", "index": 0 }]] },
-    "Decide Leader": { "main": [[{ "node": "Wait 7s (album buffer)", "type": "main", "index": 0 }]] },
-    "Wait 7s (album buffer)": { "main": [[{ "node": "HTTP: SMEMBERS album", "type": "main", "index": 0 }]] },
+    "Decide Leader": { "main": [[{ "node": "Wait 10s (album buffer)", "type": "main", "index": 0 }]] },
+    "Wait 10s (album buffer)": { "main": [[{ "node": "HTTP: SMEMBERS album", "type": "main", "index": 0 }]] },
     "HTTP: SMEMBERS album": { "main": [[{ "node": "Drain", "type": "main", "index": 0 }]] },
     "Drain": { "main": [[{ "node": "IF emitted_session?", "type": "main", "index": 0 }]] },
     "IF emitted_session?": {
