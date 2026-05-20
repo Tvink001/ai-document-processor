@@ -1,0 +1,87 @@
+{
+  "id": "NZ46OvGw49tzN5FS",
+  "name": "P3 — WF05 Error Alerts",
+  "active": true,
+  "nodes": [
+    {
+      "id": "node-error-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [200, 300],
+      "parameters": {}
+    },
+    {
+      "id": "node-sanitize",
+      "name": "Sanitize Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// WF05 — sanitize incoming Error Trigger payload, prep _errors row + Telegram text.\nconst inp = ($input.first() && $input.first().json) || {};\nconst exec = inp.execution || {};\nconst wf   = inp.workflow || {};\nconst err  = exec.error || {};\n\nconst execId   = String(exec.id || '');\nconst execUrl  = String(exec.url || '');\nconst node     = String(exec.lastNodeExecuted || '');\nconst wfId     = String(wf.id || '');\nconst wfName   = String(wf.name || '');\nconst errMsg   = String(err.message || '');\nconst errStack = String(err.stack || '');\n\n// Build raw payload snapshot — useful subset, NOT the whole exec data.\nconst rawPayload = JSON.stringify({\n  execution_id: execId,\n  execution_url: execUrl,\n  workflow_name: wfName,\n  last_node: node,\n  error_message: errMsg,\n  error_stack: errStack\n});\n\nfunction sanitize(s) {\n  let out = String(s == null ? '' : s);\n  // JWT-shaped tokens: header.payload.signature, b64url segments.\n  out = out.replace(/\\beyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\b/g, '<token>');\n  // Long base64 blobs (≥80 chars).\n  out = out.replace(/\\b[A-Za-z0-9+/]{80,}={0,2}\\b/g, (m) => '<base64 ' + m.length + ' bytes>');\n  // URL query strings → strip to host+path.\n  out = out.replace(/(https?:\\/\\/[^\\s?]+)\\?[^\\s]+/g, '$1');\n  return out;\n}\n\nfunction truncate(s, n) {\n  if (s.length <= n) return s;\n  return s.slice(0, n - 3) + '...';\n}\n\nconst errorText      = truncate(sanitize(errMsg), 500);\nconst payloadRedacted = truncate(sanitize(rawPayload), 500);\n\n// Known WF ids — used by Telegram message line.\nconst WF_NAMES = {\n  'DegFDAfq4HhTX2eU': 'WF01 Receive Files',\n  '7XllTLmW3Pzchqv6': 'WF02 Extract & Analyze',\n  'BgMRQbJP3XWaZrge': 'WF03 Update Sheets & Drive',\n  'km6hEXcuWuwbKYxu': 'WF04 Build Archive & Reply'\n};\nconst friendlyWf = WF_NAMES[wfId] || wfName || wfId || 'unknown';\n\nconst tgText =\n  '\\u{1F6A8} P3_bot error\\n' +\n  'workflow: ' + friendlyWf + '\\n' +\n  'node: ' + (node || 'n/a') + '\\n' +\n  'error: ' + truncate(errorText, 200) + '\\n' +\n  (execUrl ? 'execution: ' + execUrl : 'execution: (no id — trigger-side failure)');\n\nreturn [{ json: {\n  timestamp: new Date().toISOString(),\n  session_id: '',\n  file_id: '',\n  workflow_id: wfId,\n  workflow_name: wfName,\n  node: node,\n  error_text: errorText,\n  payload_redacted: payloadRedacted,\n  retry_count: 0,\n  execution_url: execUrl,\n  telegram_text: tgText\n}}];"
+      }
+    },
+    {
+      "id": "node-sheets-append",
+      "name": "_errors: Append",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [680, 300],
+      "parameters": {
+        "operation": "append",
+        "documentId": { "__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet" },
+        "sheetName": { "__rl": true, "mode": "name", "value": "_errors", "cachedResultName": "_errors" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $json.timestamp }}",
+            "session_id": "={{ $json.session_id }}",
+            "file_id": "={{ $json.file_id }}",
+            "workflow_id": "={{ $json.workflow_id }}",
+            "node": "={{ $json.node }}",
+            "error_text": "={{ $json.error_text }}",
+            "payload_redacted": "={{ $json.payload_redacted }}",
+            "retry_count": "={{ $json.retry_count }}"
+          },
+          "schema": [
+            { "id": "timestamp", "type": "string", "display": true, "displayName": "timestamp" },
+            { "id": "session_id", "type": "string", "display": true, "displayName": "session_id" },
+            { "id": "file_id", "type": "string", "display": true, "displayName": "file_id" },
+            { "id": "workflow_id", "type": "string", "display": true, "displayName": "workflow_id" },
+            { "id": "node", "type": "string", "display": true, "displayName": "node" },
+            { "id": "error_text", "type": "string", "display": true, "displayName": "error_text" },
+            { "id": "payload_redacted", "type": "string", "display": true, "displayName": "payload_redacted" },
+            { "id": "retry_count", "type": "number", "display": true, "displayName": "retry_count" }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "node-tg-manager",
+      "name": "Telegram: Alert Manager",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [920, 300],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "1410989113",
+        "text": "={{ $('Sanitize Payload').first().json.telegram_text }}",
+        "additionalFields": {}
+      },
+      "credentials": { "telegramApi": { "id": "awqlBtw3tG6HJGW1", "name": "Telegram account 2" } },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Error Trigger": { "main": [[{ "node": "Sanitize Payload", "type": "main", "index": 0 }]] },
+    "Sanitize Payload": { "main": [[{ "node": "_errors: Append", "type": "main", "index": 0 }]] },
+    "_errors: Append": { "main": [[{ "node": "Telegram: Alert Manager", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": []
+}
