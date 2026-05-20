@@ -208,11 +208,11 @@
     "Switch: files > 6?": {
       "main": [
         [{ "node": "Telegram: too many files", "type": "main", "index": 0 }],
-        [{ "node": "Sessions: Append or Update", "type": "main", "index": 0 }]
+        [
+          { "node": "Sessions: Append or Update", "type": "main", "index": 0 },
+          { "node": "Execute → WF02", "type": "main", "index": 0 }
+        ]
       ]
-    },
-    "Sessions: Append or Update": {
-      "main": [[{ "node": "Execute → WF02", "type": "main", "index": 0 }]]
     }
   },
   "settings": {

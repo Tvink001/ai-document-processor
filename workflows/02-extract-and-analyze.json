@@ -1,0 +1,289 @@
+{
+  "id": "7XllTLmW3Pzchqv6",
+  "name": "P3 — WF02 Extract Text",
+  "active": true,
+  "nodes": [
+    {
+      "id": "node-wf02-trigger",
+      "name": "When called by WF01",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [200, 300],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "node-expand-files",
+      "name": "Expand Files",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// WF02.A step 1 — expand the files[] array from WF01 into N items.\n// WF01 ships one aggregated item per execution: { files: [{session_id, file:{...}, ...}, ...] }.\n// Downstream nodes process each file in turn.\nconst inp = $input.first() && $input.first().json;\nif (!inp) return [];\nconst files = (inp.files || []);\nreturn files.map(f => ({ json: f }));"
+      }
+    },
+    {
+      "id": "node-tg-download",
+      "name": "Telegram: Download File",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [680, 300],
+      "parameters": {
+        "resource": "file",
+        "operation": "get",
+        "fileId": "={{ $json.file.file_id }}",
+        "download": true,
+        "additionalFields": {}
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "awqlBtw3tG6HJGW1",
+          "name": "Telegram account 2"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "node-switch-mime",
+      "name": "Switch by MIME",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [920, 300],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+                "conditions": [
+                  {
+                    "id": "rule-pdf",
+                    "leftValue": "={{ $binary.data.mimeType }}",
+                    "rightValue": "application/pdf",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "pdf"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+                "conditions": [
+                  {
+                    "id": "rule-docx",
+                    "leftValue": "={{ $binary.data.mimeType }}",
+                    "rightValue": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "docx"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+                "conditions": [
+                  {
+                    "id": "rule-image",
+                    "leftValue": "={{ $binary.data.mimeType }}",
+                    "rightValue": "^image/(jpeg|png)$",
+                    "operator": { "type": "string", "operation": "regex" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "image"
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "unsupported"
+        }
+      }
+    },
+    {
+      "id": "node-extract-pdf",
+      "name": "Extract PDF Text",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [1180, 100],
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "data",
+        "options": { "joinPages": true }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "node-normalize-pdf",
+      "name": "Normalize PDF",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1420, 100],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// WF02.A PDF normalize — emit uniform per-file result.\nconst meta = $('Expand Files').item.json;\nconst j = $json;\nconst text = (typeof j.text === 'string' ? j.text : '');\nconst hasErr = j.error || (!text);\nreturn {\n  json: {\n    file_id: meta.file && meta.file.file_id,\n    file_unique_id: meta.file && meta.file.file_unique_id,\n    file_name: meta.file && meta.file.file_name,\n    mime_type: meta.file && meta.file.mime_type,\n    session_id: meta.session_id,\n    source: 'pdf',\n    text: text,\n    error: hasErr ? (j.error && j.error.message || j.error || 'pdf_extract_empty') : null\n  }\n};"
+      }
+    },
+    {
+      "id": "node-docx-to-base64",
+      "name": "DOCX to Base64",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [1180, 280],
+      "parameters": {
+        "operation": "binaryToPropery",
+        "binaryPropertyName": "data",
+        "destinationKey": "docx_base64",
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "node-http-extract-docx",
+      "name": "HTTP: Extract DOCX (Apps Script)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [1420, 280],
+      "parameters": {
+        "method": "POST",
+        "url": "https://script.google.com/macros/s/AKfycbw5pmUpXQlCRCr0ZQ98FviLw8m4WSftgwOs8x8jez8cdbsnuym0GXJDQeH8dguvExlN/exec",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={\"action\":\"extract_docx\",\"file_name\":\"{{ ($('Expand Files').item.json.file && $('Expand Files').item.json.file.file_name) || 'file.docx' }}\",\"docx_base64\":\"{{ $json.docx_base64 }}\"}",
+        "options": {
+          "response": { "response": { "responseFormat": "json" } },
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "9V4YLEeu2ChBqEd5",
+          "name": "P3_bot Apps Script Token"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "node-normalize-docx",
+      "name": "Normalize DOCX",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1660, 280],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// WF02.A DOCX normalize — emit uniform per-file result.\nconst meta = $('Expand Files').item.json;\nconst j = $json;\nlet text = '';\nlet err = null;\nif (j && typeof j.text === 'string') {\n  text = j.text;\n} else if (j && j.error) {\n  err = String(j.error);\n} else {\n  err = 'docx_extract_unknown_response';\n}\nreturn {\n  json: {\n    file_id: meta.file && meta.file.file_id,\n    file_unique_id: meta.file && meta.file.file_unique_id,\n    file_name: meta.file && meta.file.file_name,\n    mime_type: meta.file && meta.file.mime_type,\n    session_id: meta.session_id,\n    source: 'docx',\n    text: text,\n    error: err\n  }\n};"
+      }
+    },
+    {
+      "id": "node-image-to-base64",
+      "name": "Image to Base64",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [1180, 460],
+      "parameters": {
+        "operation": "binaryToPropery",
+        "binaryPropertyName": "data",
+        "destinationKey": "image_base64",
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "node-normalize-image",
+      "name": "Normalize Image",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1420, 460],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// WF02.A image normalize — emit uniform per-file result with base64.\nconst meta = $('Expand Files').item.json;\nconst j = $json;\nlet image_b64 = (j && typeof j.image_base64 === 'string' && j.image_base64.length > 0) ? j.image_base64 : null;\nreturn {\n  json: {\n    file_id: meta.file && meta.file.file_id,\n    file_unique_id: meta.file && meta.file.file_unique_id,\n    file_name: meta.file && meta.file.file_name,\n    mime_type: meta.file && meta.file.mime_type,\n    session_id: meta.session_id,\n    source: 'image',\n    image_b64: image_b64,\n    error: image_b64 ? null : 'no_binary_data'\n  }\n};"
+      }
+    },
+    {
+      "id": "node-mark-unsupported",
+      "name": "Mark Unsupported",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1180, 640],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// WF02.A unsupported MIME — record error, do not crash session.\nconst meta = $('Expand Files').item.json;\nreturn {\n  json: {\n    file_id: meta.file && meta.file.file_id,\n    file_unique_id: meta.file && meta.file.file_unique_id,\n    file_name: meta.file && meta.file.file_name,\n    mime_type: meta.file && meta.file.mime_type,\n    session_id: meta.session_id,\n    source: 'unsupported',\n    error: 'unsupported_mime'\n  }\n};"
+      }
+    },
+    {
+      "id": "node-aggregate-results",
+      "name": "Aggregate Results",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [1900, 400],
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "results",
+        "include": "allFields",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "When called by WF01": {
+      "main": [[{ "node": "Expand Files", "type": "main", "index": 0 }]]
+    },
+    "Expand Files": {
+      "main": [[{ "node": "Telegram: Download File", "type": "main", "index": 0 }]]
+    },
+    "Telegram: Download File": {
+      "main": [[{ "node": "Switch by MIME", "type": "main", "index": 0 }]]
+    },
+    "Switch by MIME": {
+      "main": [
+        [{ "node": "Extract PDF Text", "type": "main", "index": 0 }],
+        [{ "node": "DOCX to Base64", "type": "main", "index": 0 }],
+        [{ "node": "Image to Base64", "type": "main", "index": 0 }],
+        [{ "node": "Mark Unsupported", "type": "main", "index": 0 }]
+      ]
+    },
+    "Extract PDF Text": {
+      "main": [[{ "node": "Normalize PDF", "type": "main", "index": 0 }]]
+    },
+    "DOCX to Base64": {
+      "main": [[{ "node": "HTTP: Extract DOCX (Apps Script)", "type": "main", "index": 0 }]]
+    },
+    "HTTP: Extract DOCX (Apps Script)": {
+      "main": [[{ "node": "Normalize DOCX", "type": "main", "index": 0 }]]
+    },
+    "Normalize PDF": {
+      "main": [[{ "node": "Aggregate Results", "type": "main", "index": 0 }]]
+    },
+    "Normalize DOCX": {
+      "main": [[{ "node": "Aggregate Results", "type": "main", "index": 0 }]]
+    },
+    "Image to Base64": {
+      "main": [[{ "node": "Normalize Image", "type": "main", "index": 0 }]]
+    },
+    "Normalize Image": {
+      "main": [[{ "node": "Aggregate Results", "type": "main", "index": 0 }]]
+    },
+    "Mark Unsupported": {
+      "main": [[{ "node": "Aggregate Results", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}
