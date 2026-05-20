@@ -56,7 +56,7 @@
             { "id": "processed", "type": "string", "display": true, "displayName": "processed" }
           ]
         },
-        "options": {}
+        "options": { "useAppend": true }
       },
       "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } }
     },
