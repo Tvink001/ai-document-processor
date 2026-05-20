@@ -1,6 +1,6 @@
 {
   "id": "7XllTLmW3Pzchqv6",
-  "name": "P3 — WF02 Extract Text",
+  "name": "P3 — WF02 Extract & Classify",
   "active": true,
   "nodes": [
     {
@@ -9,9 +9,7 @@
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
       "position": [200, 300],
-      "parameters": {
-        "inputSource": "passthrough"
-      }
+      "parameters": { "inputSource": "passthrough" }
     },
     {
       "id": "node-expand-files",
@@ -21,7 +19,7 @@
       "position": [440, 300],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// WF02.A step 1 — expand the files[] array from WF01 into N items.\n// WF01 ships one aggregated item per execution: { files: [{session_id, file:{...}, ...}, ...] }.\n// Downstream nodes process each file in turn.\nconst inp = $input.first() && $input.first().json;\nif (!inp) return [];\nconst files = (inp.files || []);\nreturn files.map(f => ({ json: f }));"
+        "jsCode": "// WF02.A step 1 — expand the files[] array from WF01 into N items.\nconst inp = $input.first() && $input.first().json;\nif (!inp) return [];\nconst files = (inp.files || []);\nreturn files.map(f => ({ json: f }));"
       }
     },
     {
@@ -38,10 +36,7 @@
         "additionalFields": {}
       },
       "credentials": {
-        "telegramApi": {
-          "id": "awqlBtw3tG6HJGW1",
-          "name": "Telegram account 2"
-        }
+        "telegramApi": { "id": "awqlBtw3tG6HJGW1", "name": "Telegram account 2" }
       },
       "onError": "continueRegularOutput"
     },
@@ -55,61 +50,13 @@
         "mode": "rules",
         "rules": {
           "values": [
-            {
-              "conditions": {
-                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
-                "conditions": [
-                  {
-                    "id": "rule-pdf",
-                    "leftValue": "={{ $binary.data.mimeType }}",
-                    "rightValue": "application/pdf",
-                    "operator": { "type": "string", "operation": "equals" }
-                  }
-                ],
-                "combinator": "and"
-              },
-              "renameOutput": true,
-              "outputKey": "pdf"
-            },
-            {
-              "conditions": {
-                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
-                "conditions": [
-                  {
-                    "id": "rule-docx",
-                    "leftValue": "={{ $binary.data.mimeType }}",
-                    "rightValue": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    "operator": { "type": "string", "operation": "equals" }
-                  }
-                ],
-                "combinator": "and"
-              },
-              "renameOutput": true,
-              "outputKey": "docx"
-            },
-            {
-              "conditions": {
-                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
-                "conditions": [
-                  {
-                    "id": "rule-image",
-                    "leftValue": "={{ $binary.data.mimeType }}",
-                    "rightValue": "^image/(jpeg|png)$",
-                    "operator": { "type": "string", "operation": "regex" }
-                  }
-                ],
-                "combinator": "and"
-              },
-              "renameOutput": true,
-              "outputKey": "image"
-            }
+            { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" }, "conditions": [{ "id": "rule-pdf", "leftValue": "={{ $binary.data.mimeType }}", "rightValue": "application/pdf", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" }, "renameOutput": true, "outputKey": "pdf" },
+            { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" }, "conditions": [{ "id": "rule-docx", "leftValue": "={{ $binary.data.mimeType }}", "rightValue": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" }, "renameOutput": true, "outputKey": "docx" },
+            { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" }, "conditions": [{ "id": "rule-image", "leftValue": "={{ $binary.data.mimeType }}", "rightValue": "^image/(jpeg|png)$", "operator": { "type": "string", "operation": "regex" } }], "combinator": "and" }, "renameOutput": true, "outputKey": "image" }
           ]
         },
         "looseTypeValidation": true,
-        "options": {
-          "fallbackOutput": "extra",
-          "renameFallbackOutput": "unsupported"
-        }
+        "options": { "fallbackOutput": "extra", "renameFallbackOutput": "unsupported" }
       }
     },
     {
@@ -118,11 +65,7 @@
       "type": "n8n-nodes-base.extractFromFile",
       "typeVersion": 1.1,
       "position": [1180, 100],
-      "parameters": {
-        "operation": "pdf",
-        "binaryPropertyName": "data",
-        "options": { "joinPages": true }
-      },
+      "parameters": { "operation": "pdf", "binaryPropertyName": "data", "options": { "joinPages": true } },
       "onError": "continueRegularOutput"
     },
     {
@@ -133,7 +76,7 @@
       "position": [1420, 100],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// WF02.A PDF normalize — emit uniform per-file result.\nconst meta = $('Expand Files').item.json;\nconst j = $json;\nconst text = (typeof j.text === 'string' ? j.text : '');\nconst hasErr = j.error || (!text);\nreturn {\n  json: {\n    file_id: meta.file && meta.file.file_id,\n    file_unique_id: meta.file && meta.file.file_unique_id,\n    file_name: meta.file && meta.file.file_name,\n    mime_type: meta.file && meta.file.mime_type,\n    session_id: meta.session_id,\n    source: 'pdf',\n    text: text,\n    error: hasErr ? (j.error && j.error.message || j.error || 'pdf_extract_empty') : null\n  }\n};"
+        "jsCode": "// WF02.A PDF normalize — uniform per-file shape.\nconst meta = $('Expand Files').item.json;\nconst j = $json;\nconst text = (typeof j.text === 'string' ? j.text : '');\nconst hasErr = j.error || (!text);\nreturn {\n  json: {\n    file_id: meta.file && meta.file.file_id,\n    file_unique_id: meta.file && meta.file.file_unique_id,\n    file_name: meta.file && meta.file.file_name,\n    mime_type: meta.file && meta.file.mime_type,\n    session_id: meta.session_id,\n    source: 'pdf',\n    text: text,\n    error: hasErr ? (j.error && j.error.message || j.error || 'pdf_extract_empty') : null\n  }\n};"
       }
     },
     {
@@ -142,12 +85,7 @@
       "type": "n8n-nodes-base.extractFromFile",
       "typeVersion": 1.1,
       "position": [1180, 280],
-      "parameters": {
-        "operation": "binaryToPropery",
-        "binaryPropertyName": "data",
-        "destinationKey": "docx_base64",
-        "options": {}
-      },
+      "parameters": { "operation": "binaryToPropery", "binaryPropertyName": "data", "destinationKey": "docx_base64", "options": {} },
       "onError": "continueRegularOutput"
     },
     {
@@ -165,17 +103,9 @@
         "contentType": "json",
         "specifyBody": "json",
         "jsonBody": "={\"action\":\"extract_docx\",\"file_name\":\"{{ ($('Expand Files').item.json.file && $('Expand Files').item.json.file.file_name) || 'file.docx' }}\",\"docx_base64\":\"{{ $json.docx_base64 }}\"}",
-        "options": {
-          "response": { "response": { "responseFormat": "json" } },
-          "timeout": 30000
-        }
+        "options": { "response": { "response": { "responseFormat": "json" } }, "timeout": 30000 }
       },
-      "credentials": {
-        "httpQueryAuth": {
-          "id": "9V4YLEeu2ChBqEd5",
-          "name": "P3_bot Apps Script Token"
-        }
-      },
+      "credentials": { "httpQueryAuth": { "id": "9V4YLEeu2ChBqEd5", "name": "P3_bot Apps Script Token" } },
       "onError": "continueRegularOutput"
     },
     {
@@ -186,7 +116,7 @@
       "position": [1660, 280],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// WF02.A DOCX normalize — emit uniform per-file result.\nconst meta = $('Expand Files').item.json;\nconst j = $json;\nlet text = '';\nlet err = null;\nif (j && typeof j.text === 'string') {\n  text = j.text;\n} else if (j && j.error) {\n  err = String(j.error);\n} else {\n  err = 'docx_extract_unknown_response';\n}\nreturn {\n  json: {\n    file_id: meta.file && meta.file.file_id,\n    file_unique_id: meta.file && meta.file.file_unique_id,\n    file_name: meta.file && meta.file.file_name,\n    mime_type: meta.file && meta.file.mime_type,\n    session_id: meta.session_id,\n    source: 'docx',\n    text: text,\n    error: err\n  }\n};"
+        "jsCode": "// WF02.A DOCX normalize — uniform per-file shape.\nconst meta = $('Expand Files').item.json;\nconst j = $json;\nlet text = '';\nlet err = null;\nif (j && typeof j.text === 'string') {\n  text = j.text;\n} else if (j && j.error) {\n  err = String(j.error);\n} else {\n  err = 'docx_extract_unknown_response';\n}\nreturn {\n  json: {\n    file_id: meta.file && meta.file.file_id,\n    file_unique_id: meta.file && meta.file.file_unique_id,\n    file_name: meta.file && meta.file.file_name,\n    mime_type: meta.file && meta.file.mime_type,\n    session_id: meta.session_id,\n    source: 'docx',\n    text: text,\n    error: err\n  }\n};"
       }
     },
     {
@@ -195,12 +125,7 @@
       "type": "n8n-nodes-base.extractFromFile",
       "typeVersion": 1.1,
       "position": [1180, 460],
-      "parameters": {
-        "operation": "binaryToPropery",
-        "binaryPropertyName": "data",
-        "destinationKey": "image_base64",
-        "options": {}
-      },
+      "parameters": { "operation": "binaryToPropery", "binaryPropertyName": "data", "destinationKey": "image_base64", "options": {} },
       "onError": "continueRegularOutput"
     },
     {
@@ -211,7 +136,7 @@
       "position": [1420, 460],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// WF02.A image normalize — emit uniform per-file result with base64.\nconst meta = $('Expand Files').item.json;\nconst j = $json;\nlet image_b64 = (j && typeof j.image_base64 === 'string' && j.image_base64.length > 0) ? j.image_base64 : null;\nreturn {\n  json: {\n    file_id: meta.file && meta.file.file_id,\n    file_unique_id: meta.file && meta.file.file_unique_id,\n    file_name: meta.file && meta.file.file_name,\n    mime_type: meta.file && meta.file.mime_type,\n    session_id: meta.session_id,\n    source: 'image',\n    image_b64: image_b64,\n    error: image_b64 ? null : 'no_binary_data'\n  }\n};"
+        "jsCode": "// WF02.A image normalize — uniform per-file shape with base64.\nconst meta = $('Expand Files').item.json;\nconst j = $json;\nlet image_b64 = (j && typeof j.image_base64 === 'string' && j.image_base64.length > 0) ? j.image_base64 : null;\nreturn {\n  json: {\n    file_id: meta.file && meta.file.file_id,\n    file_unique_id: meta.file && meta.file.file_unique_id,\n    file_name: meta.file && meta.file.file_name,\n    mime_type: meta.file && meta.file.mime_type,\n    session_id: meta.session_id,\n    source: 'image',\n    image_b64: image_b64,\n    error: image_b64 ? null : 'no_binary_data'\n  }\n};"
       }
     },
     {
@@ -231,24 +156,129 @@
       "type": "n8n-nodes-base.aggregate",
       "typeVersion": 1,
       "position": [1900, 400],
+      "parameters": { "aggregate": "aggregateAllItemData", "destinationFieldName": "results", "include": "allFields", "options": {} }
+    },
+    {
+      "id": "node-read-template",
+      "name": "Read Template",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [2150, 400],
       "parameters": {
-        "aggregate": "aggregateAllItemData",
-        "destinationFieldName": "results",
-        "include": "allFields",
+        "documentId": { "__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet" },
+        "sheetName": { "__rl": true, "mode": "name", "value": "template", "cachedResultName": "template" },
         "options": {}
+      },
+      "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } }
+    },
+    {
+      "id": "node-build-haiku",
+      "name": "Build Haiku Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2400, 400],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// WF02.B — assemble the Claude classification request.\nconst agg = $('Aggregate Results').first().json;\nconst results = agg.results || [];\n\nconst templateRows = $('Read Template').all().map(i => i.json);\nconst templateList = templateRows.length === 0\n  ? '(no templates configured — operator should seed the template tab)'\n  : templateRows.map(r => {\n      const req = r.is_required === true || String(r.is_required).toUpperCase() === 'TRUE' ? ' (REQUIRED)' : '';\n      const aliases = r.synonyms ? ` aliases [${r.synonyms}]` : '';\n      const fields = r.required_fields ? ` fields ${r.required_fields}` : '';\n      return `- ${r.document_type}${req}:${aliases}${fields}`;\n    }).join('\\n');\n\nconst systemText = `You are a document classifier for Ukrainian accounting and HR pipelines.\\n\\nYou receive 1–6 documents per session, each is one of these types from the\\nTEMPLATE list. Classify each, extract these fields if present:\\n  - date (ISO YYYY-MM-DD)\\n  - number (document number)\\n  - amount (numeric, base currency UAH; null if not applicable)\\n  - contractor (counterparty name)\\n\\nFor each file, also output a confidence 0.0–1.0 — how sure you are about\\nthe type assignment.\\n\\nIf you cannot identify the type from the TEMPLATE list, return type\\n\"unknown\" with confidence reflecting how close it came to a known type.\\n\\nReturn STRICT JSON with this schema. No prose, no markdown fence:\\n{\\n  \"files\": [\\n    {\\n      \"file_id\": \"...\",\\n      \"detected_type\": \"...\",\\n      \"date\": \"YYYY-MM-DD\" | null,\\n      \"number\": \"...\" | null,\\n      \"amount\": 12345.67 | null,\\n      \"contractor\": \"...\" | null,\\n      \"confidence\": 0.0–1.0\\n    }\\n  ]\\n}\\n\\nTEMPLATE list (canonical types and synonyms):\\n${templateList}\\n\\nLanguage: documents may be Ukrainian, Russian, or English. Field names in\\noutput stay in English. Field VALUES stay in original language.`;\n\nconst content = [];\nfor (const r of results) {\n  content.push({ type: 'text', text: `--- FILE ${r.file_id} ---` });\n  if (r.text && r.text.length > 0) {\n    content.push({ type: 'text', text: r.text });\n  } else if (r.image_b64) {\n    content.push({ type: 'image', source: { type: 'base64', media_type: r.mime_type || 'image/jpeg', data: r.image_b64 } });\n  } else if (r.error) {\n    content.push({ type: 'text', text: `[file unavailable: ${r.error}]` });\n  } else {\n    content.push({ type: 'text', text: '[file empty]' });\n  }\n}\n\nreturn [{ json: { body: { model: 'claude-haiku-4-5-20251001', max_tokens: 2048, system: [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }], messages: [{ role: 'user', content }] }, results, systemText } }];"
+      }
+    },
+    {
+      "id": "node-http-haiku",
+      "name": "Claude Haiku (classify)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [2650, 400],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "anthropic-version", "value": "2023-06-01" }] },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": { "response": { "response": { "responseFormat": "json" } }, "timeout": 60000 }
+      },
+      "credentials": { "anthropicApi": { "id": "09N35JJ0R0zrY1rS", "name": "Anthropic account" } },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "node-parse-haiku",
+      "name": "Parse Haiku + Check Retry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2900, 400],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// WF02.B — parse Haiku JSON, attach model_used, decide if Sonnet retry needed.\nconst httpResp = $input.first().json;\nconst buildOutput = $('Build Haiku Request').first().json;\nconst inputResults = buildOutput.results || [];\n\nlet parsed = null;\nlet parseError = null;\ntry {\n  const text = (httpResp.content && httpResp.content[0] && httpResp.content[0].text) || '';\n  const cleaned = text.replace(/^```(?:json)?\\n?|\\n?```$/g, '').trim();\n  parsed = JSON.parse(cleaned);\n} catch (e) {\n  parseError = e.message;\n}\n\nconst haikuByFileId = {};\nif (parsed && Array.isArray(parsed.files)) {\n  for (const f of parsed.files) haikuByFileId[f.file_id] = f;\n}\n\nconst merged = inputResults.map(r => {\n  if (r.error) {\n    return { ...r, detected_type: null, confidence: 0, model_used: null, needs_retry: false };\n  }\n  const cls = haikuByFileId[r.file_id] || {};\n  const conf = typeof cls.confidence === 'number' ? cls.confidence : 0;\n  return {\n    ...r,\n    detected_type: cls.detected_type || (parseError ? null : 'unknown'),\n    date: cls.date || null,\n    number: cls.number || null,\n    amount: typeof cls.amount === 'number' ? cls.amount : null,\n    contractor: cls.contractor || null,\n    confidence: conf,\n    model_used: 'haiku-4.5',\n    needs_retry: !!parseError || conf < 0.7\n  };\n});\n\nconst needs_retry_any = merged.some(r => r.needs_retry && !r.error);\n\nreturn [{ json: { results: merged, needs_retry: needs_retry_any, usage_haiku: httpResp.usage || {}, parse_error_haiku: parseError, systemText: buildOutput.systemText } }];"
+      }
+    },
+    {
+      "id": "node-if-retry",
+      "name": "IF needs_retry?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [3150, 400],
+      "parameters": {
+        "conditions": {
+          "options": { "version": 2, "leftValue": "", "caseSensitive": true, "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [{ "id": "rule-retry", "leftValue": "={{ $json.needs_retry }}", "rightValue": "", "operator": { "type": "boolean", "operation": "true", "singleValue": true } }]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-build-sonnet",
+      "name": "Build Sonnet Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3400, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// WF02.B retry — build Sonnet 4.6 request with only the files needing retry.\nconst inp = $input.first().json;\nconst results = inp.results;\nconst retryFiles = results.filter(r => r.needs_retry && !r.error);\nconst systemText = inp.systemText;\n\nconst content = [];\nfor (const r of retryFiles) {\n  content.push({ type: 'text', text: `--- FILE ${r.file_id} ---` });\n  if (r.text && r.text.length > 0) {\n    content.push({ type: 'text', text: r.text });\n  } else if (r.image_b64) {\n    content.push({ type: 'image', source: { type: 'base64', media_type: r.mime_type || 'image/jpeg', data: r.image_b64 } });\n  }\n}\n\nreturn [{ json: { body: { model: 'claude-sonnet-4-6', max_tokens: 2048, system: [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }], messages: [{ role: 'user', content }] }, results, retryFileIds: retryFiles.map(r => r.file_id), usage_haiku: inp.usage_haiku, parse_error_haiku: inp.parse_error_haiku } }];"
+      }
+    },
+    {
+      "id": "node-http-sonnet",
+      "name": "Claude Sonnet (retry)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [3650, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "anthropic-version", "value": "2023-06-01" }] },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": { "response": { "response": { "responseFormat": "json" } }, "timeout": 90000 }
+      },
+      "credentials": { "anthropicApi": { "id": "09N35JJ0R0zrY1rS", "name": "Anthropic account" } },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "node-merge-sonnet",
+      "name": "Merge Sonnet Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3900, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// WF02.B — merge Sonnet retry results back into the Haiku results array.\nconst httpResp = $input.first().json;\nconst buildOutput = $('Build Sonnet Request').first().json;\nconst allResults = buildOutput.results || [];\n\nlet parsed = null;\nlet parseError = null;\ntry {\n  const text = (httpResp.content && httpResp.content[0] && httpResp.content[0].text) || '';\n  const cleaned = text.replace(/^```(?:json)?\\n?|\\n?```$/g, '').trim();\n  parsed = JSON.parse(cleaned);\n} catch (e) {\n  parseError = e.message;\n}\n\nconst sonnetByFileId = {};\nif (parsed && Array.isArray(parsed.files)) {\n  for (const f of parsed.files) sonnetByFileId[f.file_id] = f;\n}\n\nconst merged = allResults.map(r => {\n  if (r.needs_retry && !r.error && sonnetByFileId[r.file_id]) {\n    const cls = sonnetByFileId[r.file_id];\n    const conf = typeof cls.confidence === 'number' ? cls.confidence : 0;\n    return { ...r, detected_type: cls.detected_type || r.detected_type, date: cls.date || r.date, number: cls.number || r.number, amount: typeof cls.amount === 'number' ? cls.amount : r.amount, contractor: cls.contractor || r.contractor, confidence: conf, model_used: 'sonnet-4.6', needs_retry: false };\n  }\n  return r;\n});\n\nreturn [{ json: { results: merged, usage_haiku: buildOutput.usage_haiku || {}, usage_sonnet: httpResp.usage || {}, parse_error_haiku: buildOutput.parse_error_haiku || null, parse_error_sonnet: parseError } }];"
       }
     }
   ],
   "connections": {
-    "When called by WF01": {
-      "main": [[{ "node": "Expand Files", "type": "main", "index": 0 }]]
-    },
-    "Expand Files": {
-      "main": [[{ "node": "Telegram: Download File", "type": "main", "index": 0 }]]
-    },
-    "Telegram: Download File": {
-      "main": [[{ "node": "Switch by MIME", "type": "main", "index": 0 }]]
-    },
+    "When called by WF01": { "main": [[{ "node": "Expand Files", "type": "main", "index": 0 }]] },
+    "Expand Files": { "main": [[{ "node": "Telegram: Download File", "type": "main", "index": 0 }]] },
+    "Telegram: Download File": { "main": [[{ "node": "Switch by MIME", "type": "main", "index": 0 }]] },
     "Switch by MIME": {
       "main": [
         [{ "node": "Extract PDF Text", "type": "main", "index": 0 }],
@@ -257,33 +287,23 @@
         [{ "node": "Mark Unsupported", "type": "main", "index": 0 }]
       ]
     },
-    "Extract PDF Text": {
-      "main": [[{ "node": "Normalize PDF", "type": "main", "index": 0 }]]
-    },
-    "DOCX to Base64": {
-      "main": [[{ "node": "HTTP: Extract DOCX (Apps Script)", "type": "main", "index": 0 }]]
-    },
-    "HTTP: Extract DOCX (Apps Script)": {
-      "main": [[{ "node": "Normalize DOCX", "type": "main", "index": 0 }]]
-    },
-    "Normalize PDF": {
-      "main": [[{ "node": "Aggregate Results", "type": "main", "index": 0 }]]
-    },
-    "Normalize DOCX": {
-      "main": [[{ "node": "Aggregate Results", "type": "main", "index": 0 }]]
-    },
-    "Image to Base64": {
-      "main": [[{ "node": "Normalize Image", "type": "main", "index": 0 }]]
-    },
-    "Normalize Image": {
-      "main": [[{ "node": "Aggregate Results", "type": "main", "index": 0 }]]
-    },
-    "Mark Unsupported": {
-      "main": [[{ "node": "Aggregate Results", "type": "main", "index": 0 }]]
-    }
+    "Extract PDF Text": { "main": [[{ "node": "Normalize PDF", "type": "main", "index": 0 }]] },
+    "DOCX to Base64": { "main": [[{ "node": "HTTP: Extract DOCX (Apps Script)", "type": "main", "index": 0 }]] },
+    "HTTP: Extract DOCX (Apps Script)": { "main": [[{ "node": "Normalize DOCX", "type": "main", "index": 0 }]] },
+    "Image to Base64": { "main": [[{ "node": "Normalize Image", "type": "main", "index": 0 }]] },
+    "Normalize PDF": { "main": [[{ "node": "Aggregate Results", "type": "main", "index": 0 }]] },
+    "Normalize DOCX": { "main": [[{ "node": "Aggregate Results", "type": "main", "index": 0 }]] },
+    "Normalize Image": { "main": [[{ "node": "Aggregate Results", "type": "main", "index": 0 }]] },
+    "Mark Unsupported": { "main": [[{ "node": "Aggregate Results", "type": "main", "index": 0 }]] },
+    "Aggregate Results": { "main": [[{ "node": "Read Template", "type": "main", "index": 0 }]] },
+    "Read Template": { "main": [[{ "node": "Build Haiku Request", "type": "main", "index": 0 }]] },
+    "Build Haiku Request": { "main": [[{ "node": "Claude Haiku (classify)", "type": "main", "index": 0 }]] },
+    "Claude Haiku (classify)": { "main": [[{ "node": "Parse Haiku + Check Retry", "type": "main", "index": 0 }]] },
+    "Parse Haiku + Check Retry": { "main": [[{ "node": "IF needs_retry?", "type": "main", "index": 0 }]] },
+    "IF needs_retry?": { "main": [[{ "node": "Build Sonnet Request", "type": "main", "index": 0 }]] },
+    "Build Sonnet Request": { "main": [[{ "node": "Claude Sonnet (retry)", "type": "main", "index": 0 }]] },
+    "Claude Sonnet (retry)": { "main": [[{ "node": "Merge Sonnet Results", "type": "main", "index": 0 }]] }
   },
-  "settings": {
-    "executionOrder": "v1"
-  },
+  "settings": { "executionOrder": "v1" },
   "tags": []
 }
