@@ -1,7 +1,7 @@
 {
   "id": "bzrdLMaAMX3AIRNM",
   "name": "P3 — WF03b Persist Transactions",
-  "active": false,
+  "active": true,
   "nodes": [
     {
       "id": "node-wf03b-trigger",
@@ -9,7 +9,7 @@
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
       "position": [200, 300],
-      "parameters": { "inputSource": "passthrough" }
+      "parameters": {"inputSource": "passthrough"}
     },
     {
       "id": "node-expand-statements",
@@ -19,7 +19,7 @@
       "position": [420, 300],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// WF03b step 1 — unpack statements[] from WF02b into N items, one per statement.\nconst inp = $input.first() && $input.first().json;\nif (!inp) return [];\nconst statements = (inp.statements || []);\nreturn statements.map(s => ({ json: s }));"
+        "jsCode": "// WF03b step 1 — unpack statements[] from WF02b into N items, one per statement.\n// Carry target_folder_id / target_folder_name / callback_url from the parent\n// onto every per-statement item so Drive upload and WF04b can read them.\nconst inp = $input.first() && $input.first().json;\nif (!inp) return [];\nconst statements = inp.statements || [];\nconst target_folder_id = inp.target_folder_id || '';\nconst target_folder_name = inp.target_folder_name || '';\nconst callback_url = inp.callback_url || '';\nreturn statements.map(s => ({\n  json: {\n    ...s,\n    target_folder_id: s.target_folder_id || target_folder_id,\n    target_folder_name: s.target_folder_name || target_folder_name,\n    callback_url: s.callback_url || callback_url\n  }\n}));"
       }
     },
     {
@@ -30,7 +30,7 @@
       "position": [640, 300],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// WF03b step 2 — compute dedup_period_hash + the Drive filename.\nconst crypto = require('crypto');\nconst s = $json;\nconst bank = s.bank || 'generic';\nconst ps = s.period_start || 'nodate';\nconst pe = s.period_end || 'nodate';\nconst period_hash = crypto.createHash('md5').update(`${bank}|${ps}|${pe}`).digest('hex');\nconst sshort = (s.statement_id || '').slice(0, 8) || 'noid';\nconst rawName = `${bank}_${ps}_${pe}_${sshort}.pdf`;\nconst filename = rawName.replace(/[^A-Za-z0-9._\\-\\u0400-\\u04ff]/g, '_');\nreturn { json: { ...s, dedup_period_hash: period_hash, drive_filename: filename } };"
+        "jsCode": "// WF03b step 2 — compute dedup_period_hash + the Drive filename.\nconst crypto = require('crypto');\nconst s = $json;\nconst bank = s.bank || 'generic';\nconst ps = s.period_start || 'nodate';\nconst pe = s.period_end || 'nodate';\nconst period_hash = crypto.createHash('md5').update(`${bank}|${ps}|${pe}`).digest('hex');\nconst sshort = (s.statement_id || '').slice(0, 8) || 'noid';\nconst rawName = `${bank}_${ps}_${pe}_${sshort}.pdf`;\nconst filename = rawName.replace(/[^A-Za-z0-9._\\-Ѐ-ӿ]/g, '_');\nreturn { json: { ...s, dedup_period_hash: period_hash, drive_filename: filename } };"
       }
     },
     {
@@ -39,8 +39,14 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [860, 300],
-      "parameters": { "resource": "file", "operation": "get", "fileId": "={{ $json.file.file_id }}", "download": true, "additionalFields": {} },
-      "credentials": { "telegramApi": { "id": "awqlBtw3tG6HJGW1", "name": "Telegram account 2" } },
+      "parameters": {
+        "resource": "file",
+        "operation": "get",
+        "fileId": "={{ $json.file.file_id }}",
+        "download": true,
+        "additionalFields": {}
+      },
+      "credentials": {"telegramApi": {"id": "awqlBtw3tG6HJGW1", "name": "Telegram account 2"}},
       "onError": "continueRegularOutput",
       "webhookId": "p3-wf03b-tg-redownload"
     },
@@ -55,12 +61,16 @@
         "operation": "upload",
         "name": "={{ $('Compute Period Hash + Filename').item.json.drive_filename }}",
         "inputDataFieldName": "data",
-        "driveId": { "__rl": true, "mode": "list", "value": "My Drive", "cachedResultName": "My Drive" },
-        "folderId": { "__rl": true, "mode": "id", "value": "1OvuG8ZTHlvF375Oj0GscdtH0nH8iadRU", "cachedResultName": "P3_bot Archive" },
+        "driveId": {"__rl": true, "mode": "list", "value": "My Drive", "cachedResultName": "My Drive"},
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ ($('Compute Period Hash + Filename').item.json.target_folder_id) || '1OvuG8ZTHlvF375Oj0GscdtH0nH8iadRU' }}"
+        },
         "options": {}
       },
       "onError": "continueRegularOutput",
-      "credentials": { "googleDriveOAuth2Api": { "id": "WriOvqVONCdAUwWt", "name": "Google Drive account" } }
+      "credentials": {"googleDriveOAuth2Api": {"id": "WriOvqVONCdAUwWt", "name": "Google Drive account"}}
     },
     {
       "id": "node-build-row",
@@ -70,7 +80,7 @@
       "position": [1300, 300],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// WF03b step 4 — assemble the statements-sheet row from Drive upload response + meta.\nconst driveResp = $json;\nconst meta = $('Compute Period Hash + Filename').item.json;\nconst webViewLink = driveResp.webViewLink || (driveResp.id ? `https://drive.google.com/file/d/${driveResp.id}/view` : null);\nreturn {\n  json: {\n    session_id: meta.session_id,\n    statement_id: meta.statement_id,\n    bank: meta.bank,\n    period_start: meta.period_start,\n    period_end: meta.period_end,\n    currency: meta.currency,\n    opening_balance: meta.opening_balance,\n    closing_balance: meta.closing_balance,\n    dedup_period_hash: meta.dedup_period_hash,\n    drive_url: webViewLink,\n    processed_at: new Date().toISOString(),\n    transactions: meta.transactions || []\n  }\n};"
+        "jsCode": "// WF03b step 4 — assemble statements-sheet row from Drive upload response + meta.\nconst driveResp = $json;\nconst meta = $('Compute Period Hash + Filename').item.json;\nconst webViewLink = driveResp.webViewLink || (driveResp.id ? `https://drive.google.com/file/d/${driveResp.id}/view` : null);\nreturn {\n  json: {\n    session_id: meta.session_id,\n    chat_id: meta.chat_id,\n    statement_id: meta.statement_id,\n    bank: meta.bank,\n    period_start: meta.period_start,\n    period_end: meta.period_end,\n    currency: meta.currency,\n    opening_balance: meta.opening_balance,\n    closing_balance: meta.closing_balance,\n    dedup_period_hash: meta.dedup_period_hash,\n    drive_url: webViewLink,\n    processed_at: new Date().toISOString(),\n    transactions: meta.transactions || [],\n    target_folder_id: meta.target_folder_id || '',\n    target_folder_name: meta.target_folder_name || '',\n    callback_url: meta.callback_url || ''\n  }\n};"
       }
     },
     {
@@ -82,8 +92,8 @@
       "parameters": {
         "resource": "sheet",
         "operation": "append",
-        "documentId": { "__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet" },
-        "sheetName": { "__rl": true, "mode": "name", "value": "statements", "cachedResultName": "statements" },
+        "documentId": {"__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet"},
+        "sheetName": {"__rl": true, "mode": "name", "value": "statements", "cachedResultName": "statements"},
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
@@ -98,24 +108,11 @@
             "dedup_period_hash": "={{ $json.dedup_period_hash }}",
             "drive_url": "={{ $json.drive_url || '' }}",
             "processed_at": "={{ $json.processed_at }}"
-          },
-          "schema": [
-            { "id": "session_id", "type": "string", "display": true, "displayName": "session_id" },
-            { "id": "statement_id", "type": "string", "display": true, "displayName": "statement_id" },
-            { "id": "bank", "type": "string", "display": true, "displayName": "bank" },
-            { "id": "period_start", "type": "string", "display": true, "displayName": "period_start" },
-            { "id": "period_end", "type": "string", "display": true, "displayName": "period_end" },
-            { "id": "currency", "type": "string", "display": true, "displayName": "currency" },
-            { "id": "opening_balance", "type": "number", "display": true, "displayName": "opening_balance" },
-            { "id": "closing_balance", "type": "number", "display": true, "displayName": "closing_balance" },
-            { "id": "dedup_period_hash", "type": "string", "display": true, "displayName": "dedup_period_hash" },
-            { "id": "drive_url", "type": "string", "display": true, "displayName": "drive_url" },
-            { "id": "processed_at", "type": "string", "display": true, "displayName": "processed_at" }
-          ]
+          }
         },
-        "options": { "useAppend": true }
+        "options": {"useAppend": true}
       },
-      "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } },
+      "credentials": {"googleSheetsOAuth2Api": {"id": "vPYba8prk7sfff5g", "name": "Google Sheets account"}},
       "onError": "continueRegularOutput"
     },
     {
@@ -138,8 +135,8 @@
       "parameters": {
         "resource": "sheet",
         "operation": "append",
-        "documentId": { "__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet" },
-        "sheetName": { "__rl": true, "mode": "name", "value": "transactions", "cachedResultName": "transactions" },
+        "documentId": {"__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet"},
+        "sheetName": {"__rl": true, "mode": "name", "value": "transactions", "cachedResultName": "transactions"},
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
@@ -155,25 +152,11 @@
             "category": "={{ $json.category }}",
             "confidence": "={{ $json.confidence }}",
             "model_used": "={{ $json.model_used }}"
-          },
-          "schema": [
-            { "id": "session_id", "type": "string", "display": true, "displayName": "session_id" },
-            { "id": "statement_id", "type": "string", "display": true, "displayName": "statement_id" },
-            { "id": "date", "type": "string", "display": true, "displayName": "date" },
-            { "id": "description", "type": "string", "display": true, "displayName": "description" },
-            { "id": "counterparty", "type": "string", "display": true, "displayName": "counterparty" },
-            { "id": "amount", "type": "number", "display": true, "displayName": "amount" },
-            { "id": "currency", "type": "string", "display": true, "displayName": "currency" },
-            { "id": "debit_credit", "type": "string", "display": true, "displayName": "debit_credit" },
-            { "id": "balance_after", "type": "number", "display": true, "displayName": "balance_after" },
-            { "id": "category", "type": "string", "display": true, "displayName": "category" },
-            { "id": "confidence", "type": "number", "display": true, "displayName": "confidence" },
-            { "id": "model_used", "type": "string", "display": true, "displayName": "model_used" }
-          ]
+          }
         },
-        "options": { "useAppend": true }
+        "options": {"useAppend": true}
       },
-      "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } },
+      "credentials": {"googleSheetsOAuth2Api": {"id": "vPYba8prk7sfff5g", "name": "Google Sheets account"}},
       "onError": "continueRegularOutput",
       "executeOnce": false
     },
@@ -185,21 +168,7 @@
       "position": [2180, 300],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// WF03b step 8 — aggregate per-session totals for the Sessions tab update.\nconst statementItems = $('Build Statement Row').all().map(i => i.json);\nif (statementItems.length === 0) return [];\nconst sessionId = statementItems[0].session_id;\nconst stmts = statementItems.length;\nconst txTotal = statementItems.reduce((sum, s) => sum + ((s.transactions || []).length), 0);\nconst lowConfTotal = statementItems.reduce((sum, s) => {\n  return sum + (s.transactions || []).filter(t => typeof t.confidence === 'number' && t.confidence < 0.8).length;\n}, 0);\nreturn [{ json: { session_id: sessionId, status: 'building_xlsx', statements_count: stmts, transactions_total: txTotal, low_confidence_count: lowConfTotal } }];"
-      }
-    },
-    {
-      "id": "node-exec-wf04b",
-      "name": "Execute → WF04b",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.3,
-      "position": [2620, 300],
-      "parameters": {
-        "source": "database",
-        "workflowId": { "__rl": true, "mode": "id", "value": "lIVl7DWyBGMMJ7jK", "cachedResultName": "P3 — WF04b Build XLSX & Reply" },
-        "mode": "once",
-        "options": {},
-        "workflowInputs": { "mappingMode": "autoMapInputData", "value": {}, "schema": [], "matchingColumns": [], "attemptToConvertTypes": false, "convertFieldsToString": false }
+        "jsCode": "// WF03b step 8 — aggregate per-session totals for the Sessions tab update.\n// Also propagates callback_url + chat_id + target_folder_name to WF04b.\nconst statementItems = $('Build Statement Row').all().map(i => i.json);\nif (statementItems.length === 0) return [];\nconst first = statementItems[0];\nconst sessionId = first.session_id;\nconst stmts = statementItems.length;\nconst txTotal = statementItems.reduce((sum, s) => sum + ((s.transactions || []).length), 0);\nconst lowConfTotal = statementItems.reduce((sum, s) => {\n  return sum + (s.transactions || []).filter(t => typeof t.confidence === 'number' && t.confidence < 0.8).length;\n}, 0);\nreturn [{\n  json: {\n    session_id: sessionId,\n    chat_id: first.chat_id || 0,\n    status: 'building_xlsx',\n    statements_count: stmts,\n    transactions_total: txTotal,\n    low_confidence_count: lowConfTotal,\n    callback_url: first.callback_url || '',\n    target_folder_name: first.target_folder_name || ''\n  }\n}];"
       }
     },
     {
@@ -211,8 +180,8 @@
       "parameters": {
         "resource": "sheet",
         "operation": "update",
-        "documentId": { "__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet" },
-        "sheetName": { "__rl": true, "mode": "name", "value": "sessions", "cachedResultName": "sessions" },
+        "documentId": {"__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet"},
+        "sheetName": {"__rl": true, "mode": "name", "value": "sessions", "cachedResultName": "sessions"},
         "columns": {
           "mappingMode": "defineBelow",
           "matchingColumns": ["session_id"],
@@ -222,34 +191,40 @@
             "statements_count": "={{ $json.statements_count }}",
             "transactions_total": "={{ $json.transactions_total }}",
             "low_confidence_count": "={{ $json.low_confidence_count }}"
-          },
-          "schema": [
-            { "id": "session_id", "type": "string", "display": true, "displayName": "session_id", "defaultMatch": true, "canBeUsedToMatch": true },
-            { "id": "status", "type": "string", "display": true, "displayName": "status" },
-            { "id": "statements_count", "type": "number", "display": true, "displayName": "statements_count" },
-            { "id": "transactions_total", "type": "number", "display": true, "displayName": "transactions_total" },
-            { "id": "low_confidence_count", "type": "number", "display": true, "displayName": "low_confidence_count" }
-          ]
+          }
         },
         "options": {}
       },
-      "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } },
+      "credentials": {"googleSheetsOAuth2Api": {"id": "vPYba8prk7sfff5g", "name": "Google Sheets account"}},
       "onError": "continueRegularOutput"
+    },
+    {
+      "id": "node-exec-wf04b",
+      "name": "Execute → WF04b",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [2620, 300],
+      "parameters": {
+        "source": "database",
+        "workflowId": {"__rl": true, "mode": "id", "value": "lIVl7DWyBGMMJ7jK", "cachedResultName": "P3 — WF04b Build XLSX & Reply"},
+        "mode": "once",
+        "options": {},
+        "workflowInputs": {"mappingMode": "autoMapInputData", "value": {}, "schema": [], "matchingColumns": [], "attemptToConvertTypes": false, "convertFieldsToString": false}
+      }
     }
   ],
   "connections": {
-    "When called by WF02b": { "main": [[{ "node": "Expand Statements", "type": "main", "index": 0 }]] },
-    "Expand Statements": { "main": [[{ "node": "Compute Period Hash + Filename", "type": "main", "index": 0 }]] },
-    "Compute Period Hash + Filename": { "main": [[{ "node": "Telegram: Re-Download PDF", "type": "main", "index": 0 }]] },
-    "Telegram: Re-Download PDF": { "main": [[{ "node": "Drive: Upload PDF", "type": "main", "index": 0 }]] },
-    "Drive: Upload PDF": { "main": [[{ "node": "Build Statement Row", "type": "main", "index": 0 }]] },
-    "Build Statement Row": { "main": [[{ "node": "Statements: Append", "type": "main", "index": 0 }]] },
-    "Statements: Append": { "main": [[{ "node": "Expand Transactions", "type": "main", "index": 0 }]] },
-    "Expand Transactions": { "main": [[{ "node": "Transactions: Append", "type": "main", "index": 0 }]] },
-    "Transactions: Append": { "main": [[{ "node": "Aggregate Session Update", "type": "main", "index": 0 }]] },
-    "Aggregate Session Update": { "main": [[{ "node": "Sessions: Update Status", "type": "main", "index": 0 }]] },
-    "Sessions: Update Status": { "main": [[{ "node": "Execute → WF04b", "type": "main", "index": 0 }]] }
+    "When called by WF02b": {"main": [[{"node": "Expand Statements", "type": "main", "index": 0}]]},
+    "Expand Statements": {"main": [[{"node": "Compute Period Hash + Filename", "type": "main", "index": 0}]]},
+    "Compute Period Hash + Filename": {"main": [[{"node": "Telegram: Re-Download PDF", "type": "main", "index": 0}]]},
+    "Telegram: Re-Download PDF": {"main": [[{"node": "Drive: Upload PDF", "type": "main", "index": 0}]]},
+    "Drive: Upload PDF": {"main": [[{"node": "Build Statement Row", "type": "main", "index": 0}]]},
+    "Build Statement Row": {"main": [[{"node": "Statements: Append", "type": "main", "index": 0}]]},
+    "Statements: Append": {"main": [[{"node": "Expand Transactions", "type": "main", "index": 0}]]},
+    "Expand Transactions": {"main": [[{"node": "Transactions: Append", "type": "main", "index": 0}]]},
+    "Transactions: Append": {"main": [[{"node": "Aggregate Session Update", "type": "main", "index": 0}]]},
+    "Aggregate Session Update": {"main": [[{"node": "Sessions: Update Status", "type": "main", "index": 0}]]},
+    "Sessions: Update Status": {"main": [[{"node": "Execute → WF04b", "type": "main", "index": 0}]]}
   },
-  "settings": { "executionOrder": "v1", "errorWorkflow": "NZ46OvGw49tzN5FS" },
-  "tags": []
+  "settings": {"executionOrder": "v1", "errorWorkflow": "NZ46OvGw49tzN5FS"}
 }
