@@ -1,0 +1,185 @@
+{
+  "id": "gezrarqZ3uixiQuj",
+  "name": "P3 — WF02b Extract Transactions",
+  "active": false,
+  "nodes": [
+    {
+      "id": "node-wf02b-trigger",
+      "name": "When called by WF01",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [200, 300],
+      "parameters": { "inputSource": "passthrough" }
+    },
+    {
+      "id": "node-expand-statements",
+      "name": "Expand Statements",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// WF02b step 1 — expand files[] from WF01 into N items, one per PDF statement.\nconst inp = $input.first() && $input.first().json;\nif (!inp) return [];\nconst files = (inp.files || []);\nreturn files.map(f => ({ json: f }));"
+      }
+    },
+    {
+      "id": "node-tg-download",
+      "name": "Telegram: Download PDF",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [640, 300],
+      "parameters": { "resource": "file", "operation": "get", "fileId": "={{ $json.file.file_id }}", "download": true, "additionalFields": {} },
+      "credentials": { "telegramApi": { "id": "awqlBtw3tG6HJGW1", "name": "Telegram account 2" } },
+      "onError": "continueRegularOutput",
+      "webhookId": "p3-wf02b-tg-download"
+    },
+    {
+      "id": "node-md5-base64",
+      "name": "Compute MD5 + base64",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [860, 300],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// WF02b step 2 — hash PDF binary + emit base64 for the Anthropic document block.\nconst crypto = require('crypto');\nconst meta = $('Expand Statements').item.json;\nlet hash = '';\nlet pdfBase64 = '';\nlet fsize = 0;\ntry {\n  if ($binary && $binary.data) {\n    const buffer = await this.helpers.getBinaryDataBuffer($itemIndex, 'data');\n    hash = crypto.createHash('md5').update(buffer).digest('hex');\n    pdfBase64 = buffer.toString('base64');\n    fsize = ($binary.data.bytes && Number($binary.data.bytes)) || buffer.length;\n  } else {\n    hash = 'md5_no_binary';\n  }\n} catch (e) {\n  hash = 'md5_compute_failed:' + e.message.slice(0, 80);\n}\nreturn { json: { ...meta, statement_id: hash, pdf_base64: pdfBase64, file_size: fsize } };"
+      }
+    },
+    {
+      "id": "node-read-categories",
+      "name": "Read Categories",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [1080, 300],
+      "parameters": {
+        "documentId": { "__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet" },
+        "sheetName": { "__rl": true, "mode": "name", "value": "categories", "cachedResultName": "categories" },
+        "options": {}
+      },
+      "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "node-build-extraction",
+      "name": "Build Extraction Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// WF02b step 3 — assemble Anthropic Messages request with up to 6 PDFs as document blocks.\n// System prompt teaches Claude the bank-specific formats + category taxonomy from the sheet.\nconst statements = $('Compute MD5 + base64').all().map(i => i.json)\n  .filter(s => s.statement_id && s.pdf_base64 && s.pdf_base64.length > 100);\n\nconst categoryRows = $('Read Categories').all().map(i => i.json);\nconst categoryList = categoryRows.length === 0\n  ? '(no categories configured — operator should seed categories tab)'\n  : categoryRows.map(r => {\n      const kw = r.keywords ? ` — keywords: ${r.keywords}` : '';\n      return `- ${r.id} (${r.name_ua})${kw}`;\n    }).join('\\n');\n\nconst systemText = `You are a Ukrainian bank statement parser. For EACH PDF below, extract every transaction row.\n\nOUTPUT STRICT JSON, NO PROSE, NO MARKDOWN FENCE:\n{\n  \"statements\": [\n    {\n      \"statement_id\": \"<the id provided in the user message>\",\n      \"bank\": \"Privat24\" | \"Mono\" | \"Raiffeisen\" | \"ПУМБ\" | \"А-Банк\" | \"generic\",\n      \"period_start\": \"YYYY-MM-DD\",\n      \"period_end\": \"YYYY-MM-DD\",\n      \"currency\": \"UAH\" | \"USD\" | \"EUR\" | ...,\n      \"opening_balance\": <number> | null,\n      \"closing_balance\": <number> | null,\n      \"transactions\": [\n        {\n          \"date\": \"YYYY-MM-DD\",\n          \"description\": \"<raw description from statement>\",\n          \"counterparty\": \"<extracted name/IBAN>\" | null,\n          \"amount\": <positive number>,\n          \"currency\": \"<UAH/USD/EUR>\",\n          \"debit_credit\": \"debit\" | \"credit\",\n          \"balance_after\": <number> | null,\n          \"category\": \"<one of category IDs below>\",\n          \"confidence\": <0.0..1.0>\n        }\n      ]\n    }\n  ]\n}\n\nCATEGORIES (assign per transaction by understanding the description):\n${categoryList}\n\nBANK HINTS:\n- Privat24: Дата|Сума|Призначення|Залишок. Debit shown with minus prefix. Comma as decimal separator (e.g., 245,50).\n- Mono (monobank): Date|Description|Amount|Balance. Credit shown with + prefix. Standard table.\n- Raiffeisen: Дата операції|Опис|Сума,грн|Залишок. MCC code may appear in parens.\n- ПУМБ: Дата|Контрагент|Призначення|Сума|Залишок. Two-line descriptions OK; treat as one logical transaction.\n- А-Банк: Дата|Опис|Сума|Валюта|Залишок. Separate debit/credit columns common.\n- generic: parse what you see; output bank: \"generic\".\n\nRULES:\n- Amounts: output as POSITIVE numbers; use debit_credit field for direction.\n- Categories: use the ID (lowercase English), not the name_ua. If unsure, use \"other\".\n- Confidence: reflects category-assignment certainty. >= 0.8 = confident; < 0.8 will be flagged for manual review in the Excel.\n- Dates: ISO YYYY-MM-DD. Convert from any bank-specific format.\n- Languages: descriptions may mix uk/ru/en — preserve original.\n- DO NOT INVENT TRANSACTIONS. If a row looks malformed/unreadable, skip it.\n- DO NOT OUTPUT TEXT OUTSIDE THE JSON.`;\n\nconst content = [];\nfor (const s of statements) {\n  content.push({ type: 'text', text: `--- STATEMENT ${s.statement_id} (file: ${(s.file && s.file.file_name) || 'unknown'}) ---` });\n  content.push({\n    type: 'document',\n    source: {\n      type: 'base64',\n      media_type: 'application/pdf',\n      data: s.pdf_base64\n    }\n  });\n}\ncontent.push({ type: 'text', text: 'Extract all transactions from the above statements per the schema in the system prompt.' });\n\nreturn [{\n  json: {\n    body: {\n      model: 'claude-haiku-4-5-20251001',\n      max_tokens: 4096,\n      system: [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }],\n      messages: [{ role: 'user', content }]\n    },\n    statements: statements.map(s => ({ session_id: s.session_id, statement_id: s.statement_id, chat_id: s.chat_id, file: s.file, received_at_ms: s.received_at_ms })),\n    systemText,\n    categoryList\n  }\n}];"
+      }
+    },
+    {
+      "id": "node-http-haiku",
+      "name": "Claude Haiku (extract)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [1520, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "anthropic-version", "value": "2023-06-01" }] },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": { "response": { "response": { "responseFormat": "json" } }, "timeout": 120000 }
+      },
+      "credentials": { "anthropicApi": { "id": "09N35JJ0R0zrY1rS", "name": "Anthropic account" } },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "node-parse-retry",
+      "name": "Parse + Identify Retry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1740, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// WF02b step 5 — parse Haiku response, compute per-statement mean confidence, flag for Sonnet retry.\nconst httpResp = $input.first().json;\nconst buildOutput = $('Build Extraction Request').first().json;\nconst inputStatements = buildOutput.statements || [];\n\nlet parsed = null;\nlet parseError = null;\ntry {\n  const text = (httpResp.content && httpResp.content[0] && httpResp.content[0].text) || '';\n  const cleaned = text.replace(/^```(?:json)?\\n?|\\n?```$/g, '').trim();\n  parsed = JSON.parse(cleaned);\n} catch (e) {\n  parseError = e.message;\n}\n\nconst haikuByStmtId = {};\nif (parsed && Array.isArray(parsed.statements)) {\n  for (const s of parsed.statements) {\n    if (s.statement_id) haikuByStmtId[s.statement_id] = s;\n  }\n}\n\nconst merged = inputStatements.map(inp => {\n  const haikuS = haikuByStmtId[inp.statement_id];\n  if (!haikuS) {\n    return {\n      ...inp,\n      bank: 'unknown',\n      period_start: null,\n      period_end: null,\n      currency: null,\n      opening_balance: null,\n      closing_balance: null,\n      transactions: [],\n      mean_confidence: 0,\n      needs_retry: !parseError,\n      error: parseError ? `haiku_parse_failed:${parseError.slice(0, 80)}` : 'haiku_missing_statement'\n    };\n  }\n  const txs = Array.isArray(haikuS.transactions) ? haikuS.transactions : [];\n  const meanConf = txs.length === 0 ? 0\n    : txs.reduce((sum, t) => sum + (typeof t.confidence === 'number' ? t.confidence : 0), 0) / txs.length;\n  return {\n    ...inp,\n    bank: haikuS.bank || 'generic',\n    period_start: haikuS.period_start || null,\n    period_end: haikuS.period_end || null,\n    currency: haikuS.currency || null,\n    opening_balance: typeof haikuS.opening_balance === 'number' ? haikuS.opening_balance : null,\n    closing_balance: typeof haikuS.closing_balance === 'number' ? haikuS.closing_balance : null,\n    transactions: txs.map(t => ({ ...t, model_used: 'haiku-4.5' })),\n    mean_confidence: meanConf,\n    needs_retry: meanConf < 0.7 && txs.length > 0,\n    error: null\n  };\n});\n\nconst needs_retry_any = merged.some(s => s.needs_retry);\n\nreturn [{\n  json: {\n    statements: merged,\n    needs_retry: needs_retry_any,\n    usage_haiku: httpResp.usage || {},\n    parse_error_haiku: parseError,\n    systemText: buildOutput.systemText\n  }\n}];"
+      }
+    },
+    {
+      "id": "node-if-retry",
+      "name": "IF needs_retry?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [1960, 300],
+      "parameters": {
+        "conditions": {
+          "options": { "version": 2, "leftValue": "", "caseSensitive": true, "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [{ "id": "rule-needs-retry", "leftValue": "={{ $json.needs_retry ? 1 : 0 }}", "rightValue": 0, "operator": { "type": "number", "operation": "gt" } }]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-build-sonnet",
+      "name": "Build Sonnet Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2180, 200],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// WF02b step 7 — Sonnet retry on flagged statements. Pull pdf_base64 from upstream MD5 node.\nconst md5Items = $('Compute MD5 + base64').all().map(i => i.json);\nconst pdfByStmtId = {};\nfor (const m of md5Items) {\n  if (m.statement_id) pdfByStmtId[m.statement_id] = m.pdf_base64;\n}\n\nconst inp = $input.first().json;\nconst statements = inp.statements;\nconst retryStmts = statements.filter(s => s.needs_retry);\n\nconst content = [];\nfor (const s of retryStmts) {\n  const pdfBase64 = pdfByStmtId[s.statement_id];\n  if (!pdfBase64) continue;\n  content.push({ type: 'text', text: `--- STATEMENT ${s.statement_id} ---` });\n  content.push({\n    type: 'document',\n    source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 }\n  });\n}\ncontent.push({ type: 'text', text: 'Re-extract transactions from the above statements with higher precision per the schema in the system prompt.' });\n\nreturn [{\n  json: {\n    body: {\n      model: 'claude-sonnet-4-6',\n      max_tokens: 4096,\n      system: [{ type: 'text', text: inp.systemText, cache_control: { type: 'ephemeral' } }],\n      messages: [{ role: 'user', content }]\n    },\n    statements,\n    retryStatementIds: retryStmts.map(s => s.statement_id),\n    usage_haiku: inp.usage_haiku,\n    parse_error_haiku: inp.parse_error_haiku\n  }\n}];"
+      }
+    },
+    {
+      "id": "node-http-sonnet",
+      "name": "Claude Sonnet (retry)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [2400, 200],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "anthropic-version", "value": "2023-06-01" }] },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": { "response": { "response": { "responseFormat": "json" } }, "timeout": 180000 }
+      },
+      "credentials": { "anthropicApi": { "id": "09N35JJ0R0zrY1rS", "name": "Anthropic account" } },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "node-merge-sonnet",
+      "name": "Merge Sonnet Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2620, 200],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// WF02b step 9 — merge Sonnet retry results back into the statements array.\nconst httpResp = $input.first().json;\nconst buildOutput = $('Build Sonnet Request').first().json;\nconst allStatements = buildOutput.statements || [];\n\nlet parsed = null;\nlet parseError = null;\ntry {\n  const text = (httpResp.content && httpResp.content[0] && httpResp.content[0].text) || '';\n  const cleaned = text.replace(/^```(?:json)?\\n?|\\n?```$/g, '').trim();\n  parsed = JSON.parse(cleaned);\n} catch (e) {\n  parseError = e.message;\n}\n\nconst sonnetByStmtId = {};\nif (parsed && Array.isArray(parsed.statements)) {\n  for (const s of parsed.statements) {\n    if (s.statement_id) sonnetByStmtId[s.statement_id] = s;\n  }\n}\n\nconst merged = allStatements.map(s => {\n  if (!s.needs_retry || !sonnetByStmtId[s.statement_id]) return s;\n  const sonnetS = sonnetByStmtId[s.statement_id];\n  const txs = Array.isArray(sonnetS.transactions) ? sonnetS.transactions : [];\n  const meanConf = txs.length === 0 ? 0\n    : txs.reduce((sum, t) => sum + (typeof t.confidence === 'number' ? t.confidence : 0), 0) / txs.length;\n  return {\n    ...s,\n    bank: sonnetS.bank || s.bank,\n    period_start: sonnetS.period_start || s.period_start,\n    period_end: sonnetS.period_end || s.period_end,\n    currency: sonnetS.currency || s.currency,\n    opening_balance: typeof sonnetS.opening_balance === 'number' ? sonnetS.opening_balance : s.opening_balance,\n    closing_balance: typeof sonnetS.closing_balance === 'number' ? sonnetS.closing_balance : s.closing_balance,\n    transactions: txs.map(t => ({ ...t, model_used: 'sonnet-4.6' })),\n    mean_confidence: meanConf,\n    needs_retry: false\n  };\n});\n\nreturn [{\n  json: {\n    statements: merged,\n    usage_haiku: buildOutput.usage_haiku || {},\n    usage_sonnet: httpResp.usage || {},\n    parse_error_haiku: buildOutput.parse_error_haiku || null,\n    parse_error_sonnet: parseError\n  }\n}];"
+      }
+    }
+  ],
+  "connections": {
+    "When called by WF01": { "main": [[{ "node": "Expand Statements", "type": "main", "index": 0 }]] },
+    "Expand Statements": { "main": [[{ "node": "Telegram: Download PDF", "type": "main", "index": 0 }]] },
+    "Telegram: Download PDF": { "main": [[{ "node": "Compute MD5 + base64", "type": "main", "index": 0 }]] },
+    "Compute MD5 + base64": { "main": [[{ "node": "Read Categories", "type": "main", "index": 0 }]] },
+    "Read Categories": { "main": [[{ "node": "Build Extraction Request", "type": "main", "index": 0 }]] },
+    "Build Extraction Request": { "main": [[{ "node": "Claude Haiku (extract)", "type": "main", "index": 0 }]] },
+    "Claude Haiku (extract)": { "main": [[{ "node": "Parse + Identify Retry", "type": "main", "index": 0 }]] },
+    "Parse + Identify Retry": { "main": [[{ "node": "IF needs_retry?", "type": "main", "index": 0 }]] },
+    "IF needs_retry?": {
+      "main": [
+        [{ "node": "Build Sonnet Request", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Build Sonnet Request": { "main": [[{ "node": "Claude Sonnet (retry)", "type": "main", "index": 0 }]] },
+    "Claude Sonnet (retry)": { "main": [[{ "node": "Merge Sonnet Results", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "errorWorkflow": "NZ46OvGw49tzN5FS" },
+  "tags": []
+}
