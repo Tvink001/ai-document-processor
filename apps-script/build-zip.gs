@@ -1,38 +1,45 @@
 /**
  * build-zip.gs — Google Apps Script Web App for P3_bot.
  *
- * Routes POST requests to one of two actions:
+ * After the 2026-05-21 pivot, primary action is `build_xlsx`. The legacy
+ * `zip` and `extract_docx` actions remain wired but unused (slated for
+ * deletion at M8 of the bank-statement-parser rebuild).
  *
- *   action = "zip" (default, called from WF04)
- *     Locates files in Drive by ID (primary) or name (fallback), builds
- *     a ZIP, stores it in the same folder, returns the public URL.
- *     Google native files (Doc/Sheet/Slides) are auto-exported as PDF.
+ * Actions:
+ *
+ *   action = "build_xlsx" (called from WF04b — bank-statement product)
+ *     Creates a new Google Spreadsheet with three sheets:
+ *       - Transactions: every parsed transaction row + confidence column,
+ *         with conditional formatting (yellow background when confidence < 0.8).
+ *       - Summary: period, bank(s), totals (debit/credit), top categories,
+ *         low_confidence_count.
+ *       - Suspicious: filtered subset of Transactions where confidence < 0.8.
+ *     Exports the spreadsheet as .xlsx into the archive folder, shares
+ *     anyone-with-link, trashes the intermediate Google Sheet, returns URL.
  *     Body: {
  *       "session_id": "...",
- *       "drive_folder_id": "...",      // where the ZIP gets written
- *       "drive_ids": ["..."],          // PRIMARY: Drive file IDs (exact match)
- *       "file_names": ["..."]          // FALLBACK: used only if drive_ids is empty
+ *       "chat_id": ...,
+ *       "drive_folder_id": "...",      // where the .xlsx is written
+ *       "statements": [{statement_id, bank, period_start, period_end, currency,
+ *                       opening_balance, closing_balance, drive_url}],
+ *       "transactions": [{statement_id, date, description, counterparty,
+ *                         amount, currency, debit_credit, balance_after,
+ *                         category, confidence, model_used}],
+ *       "categories": [{id, name_ua}]
  *     }
- *     Response: { "zip_url": "...", "files_count": N, "missing_files": [...] }
+ *     Response: { "xlsx_url": "...", "sheets_count": 3, "transactions_count": N }
  *
- *   action = "extract_docx" (called from WF02 — see project_specs.md §11.A)
- *     Receives a DOCX file as base64, uploads it to Drive with
- *     mimeType=application/vnd.google-apps.document so Drive auto-
- *     converts it to a Google Doc, reads the body text via
- *     DocumentApp, trashes the temp file, returns plain text.
- *     Body: { "file_name": "...", "docx_base64": "..." }
- *     Response: { "text": "...", "char_count": N }
+ *   action = "zip" (legacy — v1 classifier product, retained until M8)
+ *   action = "extract_docx" (legacy — v1 DOCX text extraction)
  *
  * Deploy: Extensions → Apps Script → paste this file → Services →
- *   Add → "Drive API" (required for extract_docx). Then Deploy as
- *   Web App: Execute as: Me, Who has access: Anyone.
- * Copy URL into .env as APPS_SCRIPT_WEBHOOK_URL (or use the hardcoded
- * value directly in n8n nodes — n8n Cloud blocks $env access in
- * expressions; see learnings 2026-05-20).
+ *   Add → "Drive API" (legacy extract_docx still needs it). Then Deploy
+ *   as Web App: Execute as: Me, Who has access: Anyone (anonymous OK).
+ * Copy URL into .env as APPS_SCRIPT_WEBHOOK_URL.
  *
  * Script Properties → set EXPECTED_TOKEN to a random 32-char string,
- * same value as APPS_SCRIPT_TOKEN in .env.
- * Query string MUST include ?token=<APPS_SCRIPT_TOKEN>.
+ * same value as APPS_SCRIPT_TOKEN in .env. Query string MUST include
+ * ?token=<APPS_SCRIPT_TOKEN>.
  *
  * Response shape (HTTP 200 always — Apps Script quirk):
  *   Errors: { "error": "<message>" }
@@ -52,7 +59,9 @@ function doPost(e) {
     const body = JSON.parse(e.postData.contents);
     const action = body.action || 'zip';
 
-    if (action === 'zip') {
+    if (action === 'build_xlsx') {
+      return handleBuildXlsx(body);
+    } else if (action === 'zip') {
       return handleZip(body);
     } else if (action === 'extract_docx') {
       return handleExtractDocx(body);
@@ -62,6 +71,215 @@ function doPost(e) {
   } catch (err) {
     return jsonResponse({ error: String(err && err.message || err) });
   }
+}
+
+/**
+ * handleBuildXlsx — primary action after the pivot.
+ *
+ * Builds a categorised-transactions Excel workbook (.xlsx) for the
+ * accountant, with conditional formatting on low-confidence rows.
+ */
+function handleBuildXlsx(body) {
+  const sessionId = body.session_id;
+  const folderId = body.drive_folder_id;
+  const statements = Array.isArray(body.statements) ? body.statements : [];
+  const transactions = Array.isArray(body.transactions) ? body.transactions : [];
+  const categories = Array.isArray(body.categories) ? body.categories : [];
+
+  if (!sessionId || !folderId) {
+    return jsonResponse({ error: 'missing session_id or drive_folder_id' });
+  }
+  if (statements.length === 0) {
+    return jsonResponse({ error: 'no statements provided' });
+  }
+
+  // Category id → name_ua lookup, for human-readable Excel labels.
+  const catNameById = {};
+  categories.forEach(function (c) {
+    if (c && c.id) catNameById[c.id] = c.name_ua || c.id;
+  });
+
+  // 1. Create new Spreadsheet (auto-named with session_id).
+  const ss = SpreadsheetApp.create('p3bot_' + sessionId);
+  const ssId = ss.getId();
+
+  // 2. Transactions sheet (rename default).
+  const txSheet = ss.getActiveSheet();
+  txSheet.setName('Transactions');
+  const txHeaders = [
+    'Date', 'Bank', 'Period', 'Description', 'Counterparty',
+    'Amount', 'Currency', 'Debit/Credit', 'Balance After',
+    'Category', 'Category (UA)', 'Confidence', 'Model'
+  ];
+  txSheet.getRange(1, 1, 1, txHeaders.length).setValues([txHeaders]).setFontWeight('bold');
+
+  // Build statement_id → {bank, period} lookup so each transaction row
+  // can show which statement it came from without a JOIN.
+  const stmtById = {};
+  statements.forEach(function (s) {
+    if (s && s.statement_id) {
+      stmtById[s.statement_id] = {
+        bank: s.bank || '',
+        period: (s.period_start || '') + ' – ' + (s.period_end || ''),
+      };
+    }
+  });
+
+  const txRows = transactions.map(function (t) {
+    const meta = stmtById[t.statement_id] || { bank: '', period: '' };
+    return [
+      t.date || '',
+      meta.bank,
+      meta.period,
+      t.description || '',
+      t.counterparty || '',
+      typeof t.amount === 'number' ? t.amount : '',
+      t.currency || '',
+      t.debit_credit || '',
+      typeof t.balance_after === 'number' ? t.balance_after : '',
+      t.category || 'other',
+      catNameById[t.category] || t.category || 'Інше',
+      typeof t.confidence === 'number' ? t.confidence : 0,
+      t.model_used || ''
+    ];
+  });
+
+  if (txRows.length > 0) {
+    txSheet.getRange(2, 1, txRows.length, txHeaders.length).setValues(txRows);
+  }
+  txSheet.setFrozenRows(1);
+  txSheet.autoResizeColumns(1, txHeaders.length);
+
+  // 3. Conditional formatting: yellow background when Confidence < 0.8.
+  // Column L (index 12) holds Confidence.
+  if (txRows.length > 0) {
+    const confRange = txSheet.getRange(2, 12, txRows.length, 1);
+    const yellowRule = SpreadsheetApp.newConditionalFormatRule()
+      .whenNumberLessThan(0.8)
+      .setBackground('#FFEB3B')
+      .setRanges([confRange])
+      .build();
+    txSheet.setConditionalFormatRules([yellowRule]);
+  }
+
+  // 4. Summary sheet.
+  const summarySheet = ss.insertSheet('Summary');
+  summarySheet.getRange('A1').setValue('P3_bot — bank statement summary').setFontWeight('bold').setFontSize(14);
+
+  let row = 3;
+  summarySheet.getRange(row, 1).setValue('Session ID:').setFontWeight('bold');
+  summarySheet.getRange(row, 2).setValue(sessionId);
+  row++;
+
+  // Period range across all statements.
+  const periodStarts = statements.map(function (s) { return s.period_start || ''; }).filter(Boolean).sort();
+  const periodEnds = statements.map(function (s) { return s.period_end || ''; }).filter(Boolean).sort();
+  summarySheet.getRange(row, 1).setValue('Period:').setFontWeight('bold');
+  summarySheet.getRange(row, 2).setValue((periodStarts[0] || '?') + ' – ' + (periodEnds[periodEnds.length - 1] || '?'));
+  row++;
+
+  // Bank list.
+  const banks = Array.from(new Set(statements.map(function (s) { return s.bank; }).filter(Boolean)));
+  summarySheet.getRange(row, 1).setValue('Banks:').setFontWeight('bold');
+  summarySheet.getRange(row, 2).setValue(banks.join(', '));
+  row += 2;
+
+  // Totals.
+  let totalDebit = 0;
+  let totalCredit = 0;
+  let lowConfCount = 0;
+  const byCategory = {};
+  transactions.forEach(function (t) {
+    const amt = typeof t.amount === 'number' ? t.amount : 0;
+    if (t.debit_credit === 'debit') totalDebit += amt;
+    else if (t.debit_credit === 'credit') totalCredit += amt;
+    if (typeof t.confidence === 'number' && t.confidence < 0.8) lowConfCount++;
+    const cat = t.category || 'other';
+    if (!byCategory[cat]) byCategory[cat] = { count: 0, debit: 0, credit: 0 };
+    byCategory[cat].count++;
+    if (t.debit_credit === 'debit') byCategory[cat].debit += amt;
+    else if (t.debit_credit === 'credit') byCategory[cat].credit += amt;
+  });
+
+  summarySheet.getRange(row, 1).setValue('Total debit:').setFontWeight('bold');
+  summarySheet.getRange(row, 2).setValue(totalDebit);
+  row++;
+  summarySheet.getRange(row, 1).setValue('Total credit:').setFontWeight('bold');
+  summarySheet.getRange(row, 2).setValue(totalCredit);
+  row++;
+  summarySheet.getRange(row, 1).setValue('Transactions:').setFontWeight('bold');
+  summarySheet.getRange(row, 2).setValue(transactions.length);
+  row++;
+  summarySheet.getRange(row, 1).setValue('Low confidence (<0.8):').setFontWeight('bold');
+  summarySheet.getRange(row, 2).setValue(lowConfCount);
+  row += 2;
+
+  // By-category breakdown (sorted by total debit descending).
+  summarySheet.getRange(row, 1).setValue('Categories (debit/credit/count):').setFontWeight('bold');
+  row++;
+  summarySheet.getRange(row, 1, 1, 4).setValues([['Category', 'Debit', 'Credit', 'Count']]).setFontWeight('bold');
+  row++;
+  const sortedCats = Object.keys(byCategory).sort(function (a, b) {
+    return byCategory[b].debit - byCategory[a].debit;
+  });
+  sortedCats.forEach(function (cat) {
+    const c = byCategory[cat];
+    summarySheet.getRange(row, 1, 1, 4).setValues([[catNameById[cat] || cat, c.debit, c.credit, c.count]]);
+    row++;
+  });
+  summarySheet.autoResizeColumns(1, 4);
+
+  // 5. Suspicious sheet — filtered Transactions where confidence < 0.8.
+  const suspSheet = ss.insertSheet('Suspicious');
+  suspSheet.getRange(1, 1, 1, txHeaders.length).setValues([txHeaders]).setFontWeight('bold');
+  const suspRows = txRows.filter(function (r) {
+    return typeof r[11] === 'number' && r[11] < 0.8;
+  });
+  if (suspRows.length > 0) {
+    suspSheet.getRange(2, 1, suspRows.length, txHeaders.length).setValues(suspRows);
+  }
+  suspSheet.setFrozenRows(1);
+  suspSheet.autoResizeColumns(1, txHeaders.length);
+  // Same yellow background on the confidence column for visual consistency.
+  if (suspRows.length > 0) {
+    const suspConfRange = suspSheet.getRange(2, 12, suspRows.length, 1);
+    suspSheet.setConditionalFormatRules([
+      SpreadsheetApp.newConditionalFormatRule()
+        .whenNumberLessThan(0.8)
+        .setBackground('#FFEB3B')
+        .setRanges([suspConfRange])
+        .build()
+    ]);
+  }
+
+  // 6. Export as XLSX → Drive archive folder.
+  SpreadsheetApp.flush();
+  const xlsxBlob = DriveApp.getFileById(ssId)
+    .getBlob()
+    .getAs('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  xlsxBlob.setName(sessionId + '.xlsx');
+  const folder = DriveApp.getFolderById(folderId);
+  // Overwrite previous attempts with same session_id.
+  const existing = folder.getFilesByName(sessionId + '.xlsx');
+  while (existing.hasNext()) {
+    existing.next().setTrashed(true);
+  }
+  const xlsxFile = folder.createFile(xlsxBlob);
+  xlsxFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+  // 7. Trash the intermediate Google Sheet (keeps the archive folder clean).
+  try {
+    DriveApp.getFileById(ssId).setTrashed(true);
+  } catch (cleanupErr) {
+    // Non-fatal — the .xlsx is already written.
+  }
+
+  return jsonResponse({
+    xlsx_url: xlsxFile.getUrl(),
+    sheets_count: 3,
+    transactions_count: transactions.length,
+    low_confidence_count: lowConfCount,
+  });
 }
 
 function handleZip(body) {

@@ -189,6 +189,20 @@
       }
     },
     {
+      "id": "node-exec-wf04b",
+      "name": "Execute → WF04b",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [2620, 300],
+      "parameters": {
+        "source": "database",
+        "workflowId": { "__rl": true, "mode": "id", "value": "lIVl7DWyBGMMJ7jK", "cachedResultName": "P3 — WF04b Build XLSX & Reply" },
+        "mode": "once",
+        "options": {},
+        "workflowInputs": { "mappingMode": "autoMapInputData", "value": {}, "schema": [], "matchingColumns": [], "attemptToConvertTypes": false, "convertFieldsToString": false }
+      }
+    },
+    {
       "id": "node-sessions-update",
       "name": "Sessions: Update Status",
       "type": "n8n-nodes-base.googleSheets",
@@ -233,7 +247,8 @@
     "Statements: Append": { "main": [[{ "node": "Expand Transactions", "type": "main", "index": 0 }]] },
     "Expand Transactions": { "main": [[{ "node": "Transactions: Append", "type": "main", "index": 0 }]] },
     "Transactions: Append": { "main": [[{ "node": "Aggregate Session Update", "type": "main", "index": 0 }]] },
-    "Aggregate Session Update": { "main": [[{ "node": "Sessions: Update Status", "type": "main", "index": 0 }]] }
+    "Aggregate Session Update": { "main": [[{ "node": "Sessions: Update Status", "type": "main", "index": 0 }]] },
+    "Sessions: Update Status": { "main": [[{ "node": "Execute → WF04b", "type": "main", "index": 0 }]] }
   },
   "settings": { "executionOrder": "v1", "errorWorkflow": "NZ46OvGw49tzN5FS" },
   "tags": []
