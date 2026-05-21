@@ -1,0 +1,240 @@
+{
+  "id": "bzrdLMaAMX3AIRNM",
+  "name": "P3 — WF03b Persist Transactions",
+  "active": false,
+  "nodes": [
+    {
+      "id": "node-wf03b-trigger",
+      "name": "When called by WF02b",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [200, 300],
+      "parameters": { "inputSource": "passthrough" }
+    },
+    {
+      "id": "node-expand-statements",
+      "name": "Expand Statements",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// WF03b step 1 — unpack statements[] from WF02b into N items, one per statement.\nconst inp = $input.first() && $input.first().json;\nif (!inp) return [];\nconst statements = (inp.statements || []);\nreturn statements.map(s => ({ json: s }));"
+      }
+    },
+    {
+      "id": "node-period-hash",
+      "name": "Compute Period Hash + Filename",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [640, 300],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// WF03b step 2 — compute dedup_period_hash + the Drive filename.\nconst crypto = require('crypto');\nconst s = $json;\nconst bank = s.bank || 'generic';\nconst ps = s.period_start || 'nodate';\nconst pe = s.period_end || 'nodate';\nconst period_hash = crypto.createHash('md5').update(`${bank}|${ps}|${pe}`).digest('hex');\nconst sshort = (s.statement_id || '').slice(0, 8) || 'noid';\nconst rawName = `${bank}_${ps}_${pe}_${sshort}.pdf`;\nconst filename = rawName.replace(/[^A-Za-z0-9._\\-\\u0400-\\u04ff]/g, '_');\nreturn { json: { ...s, dedup_period_hash: period_hash, drive_filename: filename } };"
+      }
+    },
+    {
+      "id": "node-tg-redownload",
+      "name": "Telegram: Re-Download PDF",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [860, 300],
+      "parameters": { "resource": "file", "operation": "get", "fileId": "={{ $json.file.file_id }}", "download": true, "additionalFields": {} },
+      "credentials": { "telegramApi": { "id": "awqlBtw3tG6HJGW1", "name": "Telegram account 2" } },
+      "onError": "continueRegularOutput",
+      "webhookId": "p3-wf03b-tg-redownload"
+    },
+    {
+      "id": "node-drive-upload",
+      "name": "Drive: Upload PDF",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [1080, 300],
+      "parameters": {
+        "resource": "file",
+        "operation": "upload",
+        "name": "={{ $('Compute Period Hash + Filename').item.json.drive_filename }}",
+        "inputDataFieldName": "data",
+        "driveId": { "__rl": true, "mode": "list", "value": "My Drive", "cachedResultName": "My Drive" },
+        "folderId": { "__rl": true, "mode": "id", "value": "1OvuG8ZTHlvF375Oj0GscdtH0nH8iadRU", "cachedResultName": "P3_bot Archive" },
+        "options": {}
+      },
+      "onError": "continueRegularOutput",
+      "credentials": { "googleDriveOAuth2Api": { "id": "WriOvqVONCdAUwWt", "name": "Google Drive account" } }
+    },
+    {
+      "id": "node-build-row",
+      "name": "Build Statement Row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 300],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// WF03b step 4 — assemble the statements-sheet row from Drive upload response + meta.\nconst driveResp = $json;\nconst meta = $('Compute Period Hash + Filename').item.json;\nconst webViewLink = driveResp.webViewLink || (driveResp.id ? `https://drive.google.com/file/d/${driveResp.id}/view` : null);\nreturn {\n  json: {\n    session_id: meta.session_id,\n    statement_id: meta.statement_id,\n    bank: meta.bank,\n    period_start: meta.period_start,\n    period_end: meta.period_end,\n    currency: meta.currency,\n    opening_balance: meta.opening_balance,\n    closing_balance: meta.closing_balance,\n    dedup_period_hash: meta.dedup_period_hash,\n    drive_url: webViewLink,\n    processed_at: new Date().toISOString(),\n    transactions: meta.transactions || []\n  }\n};"
+      }
+    },
+    {
+      "id": "node-statements-append",
+      "name": "Statements: Append",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [1520, 300],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": { "__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet" },
+        "sheetName": { "__rl": true, "mode": "name", "value": "statements", "cachedResultName": "statements" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "session_id": "={{ $json.session_id }}",
+            "statement_id": "={{ $json.statement_id }}",
+            "bank": "={{ $json.bank }}",
+            "period_start": "={{ $json.period_start || '' }}",
+            "period_end": "={{ $json.period_end || '' }}",
+            "currency": "={{ $json.currency || '' }}",
+            "opening_balance": "={{ $json.opening_balance !== null && $json.opening_balance !== undefined ? $json.opening_balance : '' }}",
+            "closing_balance": "={{ $json.closing_balance !== null && $json.closing_balance !== undefined ? $json.closing_balance : '' }}",
+            "dedup_period_hash": "={{ $json.dedup_period_hash }}",
+            "drive_url": "={{ $json.drive_url || '' }}",
+            "processed_at": "={{ $json.processed_at }}"
+          },
+          "schema": [
+            { "id": "session_id", "type": "string", "display": true, "displayName": "session_id" },
+            { "id": "statement_id", "type": "string", "display": true, "displayName": "statement_id" },
+            { "id": "bank", "type": "string", "display": true, "displayName": "bank" },
+            { "id": "period_start", "type": "string", "display": true, "displayName": "period_start" },
+            { "id": "period_end", "type": "string", "display": true, "displayName": "period_end" },
+            { "id": "currency", "type": "string", "display": true, "displayName": "currency" },
+            { "id": "opening_balance", "type": "number", "display": true, "displayName": "opening_balance" },
+            { "id": "closing_balance", "type": "number", "display": true, "displayName": "closing_balance" },
+            { "id": "dedup_period_hash", "type": "string", "display": true, "displayName": "dedup_period_hash" },
+            { "id": "drive_url", "type": "string", "display": true, "displayName": "drive_url" },
+            { "id": "processed_at", "type": "string", "display": true, "displayName": "processed_at" }
+          ]
+        },
+        "options": { "useAppend": true }
+      },
+      "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "node-expand-tx",
+      "name": "Expand Transactions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1740, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// WF03b step 6 — flatten all statements' transactions into individual sheet rows.\nconst statementItems = $('Build Statement Row').all().map(i => i.json);\nconst rows = [];\nfor (const s of statementItems) {\n  const txs = Array.isArray(s.transactions) ? s.transactions : [];\n  for (const t of txs) {\n    rows.push({\n      json: {\n        session_id: s.session_id,\n        statement_id: s.statement_id,\n        date: t.date || '',\n        description: t.description || '',\n        counterparty: t.counterparty || '',\n        amount: typeof t.amount === 'number' ? t.amount : '',\n        currency: t.currency || s.currency || 'UAH',\n        debit_credit: t.debit_credit || '',\n        balance_after: typeof t.balance_after === 'number' ? t.balance_after : '',\n        category: t.category || 'other',\n        confidence: typeof t.confidence === 'number' ? t.confidence : 0,\n        model_used: t.model_used || 'haiku-4.5'\n      }\n    });\n  }\n}\nreturn rows;"
+      }
+    },
+    {
+      "id": "node-tx-append",
+      "name": "Transactions: Append",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [1960, 300],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": { "__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet" },
+        "sheetName": { "__rl": true, "mode": "name", "value": "transactions", "cachedResultName": "transactions" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "session_id": "={{ $json.session_id }}",
+            "statement_id": "={{ $json.statement_id }}",
+            "date": "={{ $json.date }}",
+            "description": "={{ $json.description }}",
+            "counterparty": "={{ $json.counterparty }}",
+            "amount": "={{ $json.amount }}",
+            "currency": "={{ $json.currency }}",
+            "debit_credit": "={{ $json.debit_credit }}",
+            "balance_after": "={{ $json.balance_after }}",
+            "category": "={{ $json.category }}",
+            "confidence": "={{ $json.confidence }}",
+            "model_used": "={{ $json.model_used }}"
+          },
+          "schema": [
+            { "id": "session_id", "type": "string", "display": true, "displayName": "session_id" },
+            { "id": "statement_id", "type": "string", "display": true, "displayName": "statement_id" },
+            { "id": "date", "type": "string", "display": true, "displayName": "date" },
+            { "id": "description", "type": "string", "display": true, "displayName": "description" },
+            { "id": "counterparty", "type": "string", "display": true, "displayName": "counterparty" },
+            { "id": "amount", "type": "number", "display": true, "displayName": "amount" },
+            { "id": "currency", "type": "string", "display": true, "displayName": "currency" },
+            { "id": "debit_credit", "type": "string", "display": true, "displayName": "debit_credit" },
+            { "id": "balance_after", "type": "number", "display": true, "displayName": "balance_after" },
+            { "id": "category", "type": "string", "display": true, "displayName": "category" },
+            { "id": "confidence", "type": "number", "display": true, "displayName": "confidence" },
+            { "id": "model_used", "type": "string", "display": true, "displayName": "model_used" }
+          ]
+        },
+        "options": { "useAppend": true }
+      },
+      "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } },
+      "onError": "continueRegularOutput",
+      "executeOnce": false
+    },
+    {
+      "id": "node-aggregate-session",
+      "name": "Aggregate Session Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2180, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// WF03b step 8 — aggregate per-session totals for the Sessions tab update.\nconst statementItems = $('Build Statement Row').all().map(i => i.json);\nif (statementItems.length === 0) return [];\nconst sessionId = statementItems[0].session_id;\nconst stmts = statementItems.length;\nconst txTotal = statementItems.reduce((sum, s) => sum + ((s.transactions || []).length), 0);\nconst lowConfTotal = statementItems.reduce((sum, s) => {\n  return sum + (s.transactions || []).filter(t => typeof t.confidence === 'number' && t.confidence < 0.8).length;\n}, 0);\nreturn [{ json: { session_id: sessionId, status: 'building_xlsx', statements_count: stmts, transactions_total: txTotal, low_confidence_count: lowConfTotal } }];"
+      }
+    },
+    {
+      "id": "node-sessions-update",
+      "name": "Sessions: Update Status",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [2400, 300],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": { "__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet" },
+        "sheetName": { "__rl": true, "mode": "name", "value": "sessions", "cachedResultName": "sessions" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": ["session_id"],
+          "value": {
+            "session_id": "={{ $json.session_id }}",
+            "status": "={{ $json.status }}",
+            "statements_count": "={{ $json.statements_count }}",
+            "transactions_total": "={{ $json.transactions_total }}",
+            "low_confidence_count": "={{ $json.low_confidence_count }}"
+          },
+          "schema": [
+            { "id": "session_id", "type": "string", "display": true, "displayName": "session_id", "defaultMatch": true, "canBeUsedToMatch": true },
+            { "id": "status", "type": "string", "display": true, "displayName": "status" },
+            { "id": "statements_count", "type": "number", "display": true, "displayName": "statements_count" },
+            { "id": "transactions_total", "type": "number", "display": true, "displayName": "transactions_total" },
+            { "id": "low_confidence_count", "type": "number", "display": true, "displayName": "low_confidence_count" }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "When called by WF02b": { "main": [[{ "node": "Expand Statements", "type": "main", "index": 0 }]] },
+    "Expand Statements": { "main": [[{ "node": "Compute Period Hash + Filename", "type": "main", "index": 0 }]] },
+    "Compute Period Hash + Filename": { "main": [[{ "node": "Telegram: Re-Download PDF", "type": "main", "index": 0 }]] },
+    "Telegram: Re-Download PDF": { "main": [[{ "node": "Drive: Upload PDF", "type": "main", "index": 0 }]] },
+    "Drive: Upload PDF": { "main": [[{ "node": "Build Statement Row", "type": "main", "index": 0 }]] },
+    "Build Statement Row": { "main": [[{ "node": "Statements: Append", "type": "main", "index": 0 }]] },
+    "Statements: Append": { "main": [[{ "node": "Expand Transactions", "type": "main", "index": 0 }]] },
+    "Expand Transactions": { "main": [[{ "node": "Transactions: Append", "type": "main", "index": 0 }]] },
+    "Transactions: Append": { "main": [[{ "node": "Aggregate Session Update", "type": "main", "index": 0 }]] },
+    "Aggregate Session Update": { "main": [[{ "node": "Sessions: Update Status", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "errorWorkflow": "NZ46OvGw49tzN5FS" },
+  "tags": []
+}

@@ -160,6 +160,20 @@
         "mode": "runOnceForAllItems",
         "jsCode": "// WF02b step 9 — merge Sonnet retry results back into the statements array.\nconst httpResp = $input.first().json;\nconst buildOutput = $('Build Sonnet Request').first().json;\nconst allStatements = buildOutput.statements || [];\n\nlet parsed = null;\nlet parseError = null;\ntry {\n  const text = (httpResp.content && httpResp.content[0] && httpResp.content[0].text) || '';\n  const cleaned = text.replace(/^```(?:json)?\\n?|\\n?```$/g, '').trim();\n  parsed = JSON.parse(cleaned);\n} catch (e) {\n  parseError = e.message;\n}\n\nconst sonnetByStmtId = {};\nif (parsed && Array.isArray(parsed.statements)) {\n  for (const s of parsed.statements) {\n    if (s.statement_id) sonnetByStmtId[s.statement_id] = s;\n  }\n}\n\nconst merged = allStatements.map(s => {\n  if (!s.needs_retry || !sonnetByStmtId[s.statement_id]) return s;\n  const sonnetS = sonnetByStmtId[s.statement_id];\n  const txs = Array.isArray(sonnetS.transactions) ? sonnetS.transactions : [];\n  const meanConf = txs.length === 0 ? 0\n    : txs.reduce((sum, t) => sum + (typeof t.confidence === 'number' ? t.confidence : 0), 0) / txs.length;\n  return {\n    ...s,\n    bank: sonnetS.bank || s.bank,\n    period_start: sonnetS.period_start || s.period_start,\n    period_end: sonnetS.period_end || s.period_end,\n    currency: sonnetS.currency || s.currency,\n    opening_balance: typeof sonnetS.opening_balance === 'number' ? sonnetS.opening_balance : s.opening_balance,\n    closing_balance: typeof sonnetS.closing_balance === 'number' ? sonnetS.closing_balance : s.closing_balance,\n    transactions: txs.map(t => ({ ...t, model_used: 'sonnet-4.6' })),\n    mean_confidence: meanConf,\n    needs_retry: false\n  };\n});\n\nreturn [{\n  json: {\n    statements: merged,\n    usage_haiku: buildOutput.usage_haiku || {},\n    usage_sonnet: httpResp.usage || {},\n    parse_error_haiku: buildOutput.parse_error_haiku || null,\n    parse_error_sonnet: parseError\n  }\n}];"
       }
+    },
+    {
+      "id": "node-exec-wf03b",
+      "name": "Execute → WF03b",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [2840, 300],
+      "parameters": {
+        "source": "database",
+        "workflowId": { "__rl": true, "mode": "id", "value": "bzrdLMaAMX3AIRNM", "cachedResultName": "P3 — WF03b Persist Transactions" },
+        "mode": "once",
+        "options": {},
+        "workflowInputs": { "mappingMode": "autoMapInputData", "value": {}, "schema": [], "matchingColumns": [], "attemptToConvertTypes": false, "convertFieldsToString": false }
+      }
     }
   ],
   "connections": {
@@ -174,11 +188,12 @@
     "IF needs_retry?": {
       "main": [
         [{ "node": "Build Sonnet Request", "type": "main", "index": 0 }],
-        []
+        [{ "node": "Execute → WF03b", "type": "main", "index": 0 }]
       ]
     },
     "Build Sonnet Request": { "main": [[{ "node": "Claude Sonnet (retry)", "type": "main", "index": 0 }]] },
-    "Claude Sonnet (retry)": { "main": [[{ "node": "Merge Sonnet Results", "type": "main", "index": 0 }]] }
+    "Claude Sonnet (retry)": { "main": [[{ "node": "Merge Sonnet Results", "type": "main", "index": 0 }]] },
+    "Merge Sonnet Results": { "main": [[{ "node": "Execute → WF03b", "type": "main", "index": 0 }]] }
   },
   "settings": { "executionOrder": "v1", "errorWorkflow": "NZ46OvGw49tzN5FS" },
   "tags": []
