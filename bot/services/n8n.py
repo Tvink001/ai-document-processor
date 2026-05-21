@@ -16,7 +16,7 @@ import logging
 from typing import Literal
 
 import httpx
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,8 @@ class FileRef(BaseModel):
 
 class SubmitFilesRequest(BaseModel):
     """JSON body POSTed to the WF01 webhook."""
+
+    model_config = ConfigDict(protected_namespaces=())
 
     chat_id: int
     session_id: str

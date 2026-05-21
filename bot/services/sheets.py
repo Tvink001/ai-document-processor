@@ -99,7 +99,15 @@ class SheetsService:
         existing = await self.get_user(chat_id)
         now = _iso_now()
         if existing is None:
-            row = [chat_id, username, first_name, "", "", now, now]
+            row: list[str | int | float] = [
+                chat_id,
+                username,
+                first_name,
+                "",
+                "",
+                now,
+                now,
+            ]
             await asyncio.to_thread(
                 self._users.append_row,
                 row,
@@ -187,7 +195,14 @@ class SheetsService:
         drive_url: str,
     ) -> FolderRecord:
         now = _iso_now()
-        row = [folder_id, chat_id, folder_name, drive_url, now, now]
+        row: list[str | int | float] = [
+            folder_id,
+            chat_id,
+            folder_name,
+            drive_url,
+            now,
+            now,
+        ]
         await asyncio.to_thread(
             self._folders.append_row,
             row,

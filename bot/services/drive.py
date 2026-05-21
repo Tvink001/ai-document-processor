@@ -21,6 +21,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, cast
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -43,7 +44,7 @@ class DriveService:
     """Thin async wrapper over Drive v3. One instance per process."""
 
     def __init__(self, service_account_path: Path) -> None:
-        creds = service_account.Credentials.from_service_account_file(
+        creds = service_account.Credentials.from_service_account_file(  # type: ignore[no-untyped-call]
             str(service_account_path),
             scopes=DRIVE_SCOPES,
         )
@@ -64,25 +65,28 @@ class DriveService:
             "parents": [parent_id],
         }
 
-        def _do() -> dict[str, str]:
-            return (
+        def _do() -> dict[str, Any]:
+            return cast(
+                dict[str, Any],
                 self._service.files()
                 .create(
                     body=body,
                     fields="id, name, webViewLink",
                     supportsAllDrives=True,
                 )
-                .execute()
+                .execute(),
             )
 
         result = await asyncio.to_thread(_do)
-        folder_id = result["id"]
+        folder_id = str(result["id"])
         return DriveFolder(
             id=folder_id,
-            name=result.get("name", name),
-            url=result.get(
-                "webViewLink",
-                f"https://drive.google.com/drive/folders/{folder_id}",
+            name=str(result.get("name", name)),
+            url=str(
+                result.get(
+                    "webViewLink",
+                    f"https://drive.google.com/drive/folders/{folder_id}",
+                ),
             ),
         )
 
@@ -91,15 +95,16 @@ class DriveService:
         if not folder_id:
             return False
 
-        def _do() -> dict[str, str]:
-            return (
+        def _do() -> dict[str, Any]:
+            return cast(
+                dict[str, Any],
                 self._service.files()
                 .get(
                     fileId=folder_id,
                     fields="id, mimeType, trashed",
                     supportsAllDrives=True,
                 )
-                .execute()
+                .execute(),
             )
 
         try:
@@ -109,4 +114,4 @@ class DriveService:
                 return False
             logger.warning("drive.folder_exists(%s) failed: %s", folder_id, e)
             return False
-        return result.get("mimeType") == FOLDER_MIME and not result.get("trashed", False)
+        return bool(result.get("mimeType") == FOLDER_MIME and not result.get("trashed", False))

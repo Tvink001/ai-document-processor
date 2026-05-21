@@ -122,6 +122,9 @@ async def on_create_name_entered(
 
 @folders_router.callback_query(FolderCB.filter(F.action == "list"))
 async def on_list(query: CallbackQuery, sheets: SheetsService) -> None:
+    if not isinstance(query.message, Message):
+        await query.answer()
+        return
     folders = await sheets.list_folders(chat_id=query.message.chat.id, limit=10)
     await query.answer()
     if not folders:
@@ -143,20 +146,24 @@ async def on_pick(
     if not folder_id:
         await query.answer("Не удалось определить папку", show_alert=True)
         return
+    if not isinstance(query.message, Message):
+        await query.answer()
+        return
+    chat_id = query.message.chat.id
 
     # Verify the folder still exists in Drive (user may have deleted it).
     if not await drive.folder_exists(folder_id):
         await query.answer(MSG_FOLDER_GONE, show_alert=True)
         return
 
-    folders = await sheets.list_folders(chat_id=query.message.chat.id, limit=50)
+    folders = await sheets.list_folders(chat_id=chat_id, limit=50)
     picked = next((f for f in folders if f.folder_id == folder_id), None)
     if picked is None:
         await query.answer(MSG_FOLDER_GONE, show_alert=True)
         return
 
     await sheets.set_current_folder(
-        chat_id=query.message.chat.id,
+        chat_id=chat_id,
         folder_id=picked.folder_id,
         folder_name=picked.folder_name,
     )
@@ -173,14 +180,16 @@ async def on_pick(
 
 @folders_router.callback_query(FolderCB.filter(F.action == "leave"))
 async def on_leave(query: CallbackQuery, sheets: SheetsService) -> None:
+    if not isinstance(query.message, Message):
+        await query.answer()
+        return
     await sheets.set_current_folder(
         chat_id=query.message.chat.id,
         folder_id="",
         folder_name="",
     )
     await query.answer("Вышли из папки")
-    if isinstance(query.message, Message):
-        await query.message.answer(
-            MSG_LEFT_FOLDER,
-            reply_markup=main_menu_no_folder(),
-        )
+    await query.message.answer(
+        MSG_LEFT_FOLDER,
+        reply_markup=main_menu_no_folder(),
+    )
