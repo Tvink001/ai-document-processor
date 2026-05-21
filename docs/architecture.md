@@ -4,9 +4,78 @@
 > the repo (not operators). For "how to set up", see `prompts.md` Step 0;
 > for "what the spec says", see `project_specs.md`.
 
+> **Updated 2026-05-22** — Python aiogram bot now in front of n8n.
+> See §1 below for the current architecture. The v1 generic-classifier
+> diagram and pivots-1+2 content are preserved further down as
+> historical reference (§3 onward).
+
 ---
 
-## 1. System diagram
+## 1. System diagram — current (M9-M19)
+
+```mermaid
+flowchart LR
+    user([User in Telegram]) -->|/start, buttons, PDFs| pybot[Python aiogram bot]
+
+    pybot -->|FSM, folder pick| sheets_users[(Sheets: users + folders)]
+    pybot -->|pypdf page count| route{model_tier?}
+    route -->|≤50pp| haiku_tier[haiku]
+    route -->|51-120pp| sonnet_tier[sonnet]
+    route -->|121-200pp| opus_tier[opus]
+    route -->|>200pp| reject[reject: split suggestion]
+
+    pybot -->|POST /webhook/p3-process<br/>X-Webhook-Secret| wf01[WF01: Webhook + Normalize<br/>Sessions append + Execute WF02b]
+
+    wf01 --> wf02b[WF02b: Extract Transactions<br/>haiku → sonnet → opus retry ladder]
+    wf02b -->|Anthropic Messages API<br/>document blocks + ephemeral cache| claude[(Claude 4.x)]
+
+    wf02b --> wf03b[WF03b: Persist<br/>Drive: dynamic target_folder_id<br/>Sheets: statements + transactions]
+    wf03b --> wf04b[WF04b: Aggregate<br/>Apps Script build_xlsx<br/>POST callback to Python]
+
+    wf04b -->|POST /n8n-callback<br/>X-Callback-Token| pybot
+    pybot -->|✅ summary + xlsx link| user
+
+    wf01 -.->|onError| wf05[WF05: Error Alerts]
+    wf02b -.-> wf05
+    wf03b -.-> wf05
+    wf04b -.-> wf05
+    wf05 -->|HTML message| mgr([Operator chat])
+
+    sheets[(Sheets: statements / transactions / sessions / categories / _errors)] --- wf02b
+    sheets --- wf03b
+    sheets --- wf04b
+    drive[(Drive folder tree:<br/>archive root + per-user folders)] --- wf03b
+```
+
+**The cut.** Python owns Telegram I/O end-to-end (commands, inline
+keyboards, FSM for folder naming, PDF intake, final reply). n8n owns
+the processing pipeline (extract → persist → xlsx-build). No
+duplicated credentials, no shared state besides Google Sheets.
+
+**Routing.** `pypdf.PdfReader(path).pages` length, picked from the
+largest PDF in the session. Haiku for ≤50pp, Sonnet 51-120pp, Opus
+121-200pp; >200pp rejected with a split suggestion before any
+Anthropic call.
+
+**Per-user folders.** `users.current_folder_id` + `folders` tab keep
+the current "candidate" selection sticky across days. Folder buttons
+("Create", "Open existing", "Leave") manage the state. Drive upload's
+`folderId` is now `={{ target_folder_id || archive_root }}` so root-
+mode uploads still work.
+
+**Callback.** WF04b POSTs `{chat_id, session_id, xlsx_url, summary,
+completed_at}` to Python's FastAPI `/n8n-callback`. Python wraps the
+plain-text summary with the ✅/⚠ header + xlsx link and sends the
+final Telegram message. n8n never holds the Telegram Bot Token outside
+WF02b's `Telegram: Download PDF` and WF03b's `Telegram: Re-Download
+PDF` (both use file_id, not the chat).
+
+---
+
+## 2. v1 historical diagram (pre-M9, archived)
+
+The original n8n-only architecture is preserved here as a reference
+for the pivot story. Commits up to `4570fc0` carried this design.
 
 ```mermaid
 flowchart LR
