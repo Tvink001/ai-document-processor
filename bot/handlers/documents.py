@@ -38,8 +38,10 @@ logger = logging.getLogger(__name__)
 documents_router = Router()
 
 # Telegram album debounce: typical album items arrive within ~1 s of each
-# other; 5 s is comfortable headroom on a busy network.
-ALBUM_DEBOUNCE_S = 5.0
+# other; 2.5 s catches stragglers without making single-file uploads feel
+# slow. (We hit this path only when media_group_id is set — single-file
+# uploads bypass the debounce entirely.)
+ALBUM_DEBOUNCE_S = 2.5
 MAX_FILES_PER_SESSION = 6
 HARD_REJECT_PAGES = OPUS_MAX_PAGES
 

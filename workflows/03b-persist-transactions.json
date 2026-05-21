@@ -168,7 +168,7 @@
       "position": [2180, 300],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// WF03b step 8 — aggregate per-session totals for the Sessions tab update.\n// Also propagates callback_url + chat_id + target_folder_name to WF04b.\nconst statementItems = $('Build Statement Row').all().map(i => i.json);\nif (statementItems.length === 0) return [];\nconst first = statementItems[0];\nconst sessionId = first.session_id;\nconst stmts = statementItems.length;\nconst txTotal = statementItems.reduce((sum, s) => sum + ((s.transactions || []).length), 0);\nconst lowConfTotal = statementItems.reduce((sum, s) => {\n  return sum + (s.transactions || []).filter(t => typeof t.confidence === 'number' && t.confidence < 0.8).length;\n}, 0);\nreturn [{\n  json: {\n    session_id: sessionId,\n    chat_id: first.chat_id || 0,\n    status: 'building_xlsx',\n    statements_count: stmts,\n    transactions_total: txTotal,\n    low_confidence_count: lowConfTotal,\n    callback_url: first.callback_url || '',\n    target_folder_name: first.target_folder_name || ''\n  }\n}];"
+        "jsCode": "// WF03b step 8 — aggregate per-session totals for the Sessions tab update.\n// Also propagates callback_url + chat_id + target_folder_* to WF04b.\nconst statementItems = $('Build Statement Row').all().map(i => i.json);\nif (statementItems.length === 0) return [];\nconst first = statementItems[0];\nconst sessionId = first.session_id;\nconst stmts = statementItems.length;\nconst txTotal = statementItems.reduce((sum, s) => sum + ((s.transactions || []).length), 0);\nconst lowConfTotal = statementItems.reduce((sum, s) => {\n  return sum + (s.transactions || []).filter(t => typeof t.confidence === 'number' && t.confidence < 0.8).length;\n}, 0);\nreturn [{\n  json: {\n    session_id: sessionId,\n    chat_id: first.chat_id || 0,\n    status: 'building_xlsx',\n    statements_count: stmts,\n    transactions_total: txTotal,\n    low_confidence_count: lowConfTotal,\n    callback_url: first.callback_url || '',\n    target_folder_id: first.target_folder_id || '',\n    target_folder_name: first.target_folder_name || ''\n  }\n}];"
       }
     },
     {
@@ -223,8 +223,8 @@
     "Statements: Append": {"main": [[{"node": "Expand Transactions", "type": "main", "index": 0}]]},
     "Expand Transactions": {"main": [[{"node": "Transactions: Append", "type": "main", "index": 0}]]},
     "Transactions: Append": {"main": [[{"node": "Aggregate Session Update", "type": "main", "index": 0}]]},
-    "Aggregate Session Update": {"main": [[{"node": "Sessions: Update Status", "type": "main", "index": 0}]]},
-    "Sessions: Update Status": {"main": [[{"node": "Execute → WF04b", "type": "main", "index": 0}]]}
+    "Aggregate Session Update": {"main": [[{"node": "Sessions: Update Status", "type": "main", "index": 0}, {"node": "Execute → WF04b", "type": "main", "index": 0}]]},
+    "Sessions: Update Status": {"main": [[]]}
   },
   "settings": {"executionOrder": "v1", "errorWorkflow": "NZ46OvGw49tzN5FS"}
 }

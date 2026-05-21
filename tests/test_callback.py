@@ -66,7 +66,8 @@ def test_callback_accepts_valid_token(stub_bot: Any) -> None:
         },
         headers={"X-Callback-Token": "test-callback-token"},
     )
-    assert resp.status_code == 204
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
     stub_bot.send_message.assert_awaited_once()
     args, kwargs = stub_bot.send_message.await_args
     assert kwargs["chat_id"] == 12345

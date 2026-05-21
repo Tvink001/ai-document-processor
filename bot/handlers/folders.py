@@ -23,11 +23,8 @@ from aiogram.types import CallbackQuery, Message
 
 from bot.callbacks import FolderCB
 from bot.config import settings
-from bot.keyboards.inline import (
-    folder_picker,
-    main_menu_no_folder,
-    main_menu_with_folder,
-)
+from bot.keyboards.inline import folder_picker
+from bot.keyboards.reply import main_reply_no_folder, main_reply_with_folder
 from bot.services.drive import DriveService
 from bot.services.sheets import SheetsService
 from bot.states import Folder
@@ -115,7 +112,7 @@ async def on_create_name_entered(
         f"✅ Папка <b>{folder.name}</b> создана и активна.\n"
         f"<a href=\"{folder.url}\">Открыть в Drive</a>\n\n"
         "Теперь PDF-файлы будут попадать в неё.",
-        reply_markup=main_menu_with_folder(folder.name),
+        reply_markup=main_reply_with_folder(folder.name),
         disable_web_page_preview=True,
     )
 
@@ -173,7 +170,7 @@ async def on_pick(
         await query.message.answer(
             f"📂 Активная папка: <b>{picked.folder_name}</b>\n"
             f"<a href=\"{picked.drive_url}\">Открыть в Drive</a>",
-            reply_markup=main_menu_with_folder(picked.folder_name),
+            reply_markup=main_reply_with_folder(picked.folder_name),
             disable_web_page_preview=True,
         )
 
@@ -191,5 +188,5 @@ async def on_leave(query: CallbackQuery, sheets: SheetsService) -> None:
     await query.answer("Вышли из папки")
     await query.message.answer(
         MSG_LEFT_FOLDER,
-        reply_markup=main_menu_no_folder(),
+        reply_markup=main_reply_no_folder(),
     )

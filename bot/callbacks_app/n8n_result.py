@@ -14,7 +14,7 @@ import logging
 from typing import Annotated
 
 from aiogram import Bot
-from fastapi import FastAPI, Header, HTTPException, Request, Response, status
+from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from bot.config import settings
@@ -48,11 +48,11 @@ def build_app(bot: Bot) -> FastAPI:
     async def health() -> dict[str, str]:
         return await _health(None)  # type: ignore[arg-type]
 
-    @app.post("/n8n-callback", status_code=status.HTTP_204_NO_CONTENT)
+    @app.post("/n8n-callback")
     async def n8n_callback(
         payload: N8nCallbackPayload,
         x_callback_token: Annotated[str | None, Header(alias="X-Callback-Token")] = None,
-    ) -> Response:
+    ) -> dict[str, str]:
         expected = settings.callback_token.get_secret_value()
         if not expected or x_callback_token != expected:
             logger.warning(
@@ -86,7 +86,9 @@ def build_app(bot: Bot) -> FastAPI:
                 "Telegram send failed for callback session_id=%s",
                 payload.session_id,
             )
-            # Still return 204 — n8n shouldn't retry; investigate logs.
-        return Response(status_code=204)
+            # Still 200 — n8n shouldn't retry; investigate logs.
+        # 200 + JSON body (not 204) so n8n's responseFormat:json doesn't
+        # interpret empty body as a transient failure and retry 3x.
+        return {"status": "ok", "session_id": payload.session_id}
 
     return app

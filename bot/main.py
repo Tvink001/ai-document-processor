@@ -24,6 +24,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import BotCommand
 
 from bot.callbacks_app.n8n_result import build_app
 from bot.config import settings
@@ -84,6 +85,14 @@ async def _run() -> None:
     # n8n era. drop_pending_updates=True clears the buffer so old test
     # messages don't re-fire on first boot.
     await bot.delete_webhook(drop_pending_updates=True)
+
+    # Register the slash-command menu (the "/" button in Telegram chat).
+    await bot.set_my_commands([
+        BotCommand(command="start", description="Главное меню"),
+        BotCommand(command="menu", description="Показать кнопки заново"),
+        BotCommand(command="cancel", description="Отменить текущее действие"),
+        BotCommand(command="help", description="Что я умею"),
+    ])
 
     logger.info(
         "Starting bot: polling=on, fastapi=%s:%s",

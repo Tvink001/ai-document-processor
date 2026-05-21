@@ -82,6 +82,7 @@ function doPost(e) {
 function handleBuildXlsx(body) {
   const sessionId = body.session_id;
   const folderId = body.drive_folder_id;
+  const targetFolderName = body.target_folder_name || '';
   const statements = Array.isArray(body.statements) ? body.statements : [];
   const transactions = Array.isArray(body.transactions) ? body.transactions : [];
   const categories = Array.isArray(body.categories) ? body.categories : [];
@@ -92,6 +93,26 @@ function handleBuildXlsx(body) {
   if (statements.length === 0) {
     return jsonResponse({ error: 'no statements provided' });
   }
+
+  // Human-readable filename: "<folder>_<bank>_<period_start>.xlsx".
+  // Falls back to session_id if the folder/bank/period are missing.
+  function sanitize(s) { return String(s || '').replace(/[^A-Za-z0-9._\-Ѐ-ӿ]/g, '_').slice(0, 60); }
+  const firstBank = (statements[0] && statements[0].bank) || 'generic';
+  const periodStart = (statements[0] && statements[0].period_start) || '';
+  const periodEnd = (statements[0] && statements[0].period_end) || '';
+  let xlsxName;
+  if (targetFolderName) {
+    xlsxName = sanitize(targetFolderName) + '_' + sanitize(firstBank);
+  } else {
+    xlsxName = sanitize(firstBank);
+  }
+  if (periodStart && periodEnd) {
+    xlsxName += '_' + sanitize(periodStart) + '_' + sanitize(periodEnd);
+  } else if (periodStart) {
+    xlsxName += '_' + sanitize(periodStart);
+  }
+  if (!xlsxName || xlsxName === 'generic') xlsxName = 'p3_' + sessionId;
+  xlsxName += '.xlsx';
 
   // Category id → name_ua lookup, for human-readable Excel labels.
   const catNameById = {};
@@ -274,10 +295,10 @@ function handleBuildXlsx(body) {
     });
   }
   const xlsxBlob = exportResp.getBlob();
-  xlsxBlob.setName(sessionId + '.xlsx');
+  xlsxBlob.setName(xlsxName);
   const folder = DriveApp.getFolderById(folderId);
-  // Overwrite previous attempts with same session_id.
-  const existing = folder.getFilesByName(sessionId + '.xlsx');
+  // Overwrite previous attempts with same name (idempotent re-runs).
+  const existing = folder.getFilesByName(xlsxName);
   while (existing.hasNext()) {
     existing.next().setTrashed(true);
   }
