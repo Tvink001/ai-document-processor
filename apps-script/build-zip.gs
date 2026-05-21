@@ -444,13 +444,22 @@ function doGet(e) {
  * (function dropdown → setupAuth → ▶ Run) to trigger the
  * scope-grant dialog for every external API the script needs.
  * Accept all permissions when prompted. No redeploy required.
+ *
+ * MUST be re-run whenever a new API is added to the script
+ * (e.g., adding SpreadsheetApp.create triggered the scope
+ * "https://www.googleapis.com/auth/spreadsheets" which the
+ * previous setupAuth didn't cover — see learnings 2026-05-21).
  */
 function setupAuth() {
   // Touch UrlFetchApp so the script.external_request scope is granted.
   UrlFetchApp.fetch('https://www.google.com/generate_204', { muteHttpExceptions: true });
   // Touch Drive Advanced Service (scope already granted by enable, but harmless).
   Drive.About.get();
-  Logger.log('setupAuth: all scopes granted.');
+  // Touch SpreadsheetApp to grant https://www.googleapis.com/auth/spreadsheets.
+  // Required for handleBuildXlsx — create + immediately trash a probe Sheet.
+  const probe = SpreadsheetApp.create('p3bot_setup_probe_' + Date.now());
+  DriveApp.getFileById(probe.getId()).setTrashed(true);
+  Logger.log('setupAuth: all scopes granted (UrlFetchApp + Drive + Spreadsheets).');
 }
 
 function jsonResponse(obj) {
