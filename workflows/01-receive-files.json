@@ -4,256 +4,65 @@
   "active": true,
   "nodes": [
     {
-      "id": "node-tg-trigger",
-      "name": "Telegram Trigger",
-      "type": "n8n-nodes-base.telegramTrigger",
-      "typeVersion": 1.3,
+      "id": "wf01-webhook",
+      "name": "Webhook: Python Intake",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
       "position": [200, 300],
-      "parameters": { "updates": ["message"], "additionalFields": {} },
-      "credentials": { "telegramApi": { "id": "awqlBtw3tG6HJGW1", "name": "Telegram account 2" } },
-      "webhookId": "p3-receive"
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "p3-process",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "V9zB3wnC3M6BxyOY",
+          "name": "X-Webhook-Secret"
+        }
+      },
+      "webhookId": "p3-process",
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
     },
     {
-      "id": "node-compute-session",
-      "name": "Compute Session ID",
+      "id": "wf01-normalize",
+      "name": "Normalize Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [420, 300],
       "parameters": {
-        "mode": "runOnceForEachItem",
-        "jsCode": "// WF01 step 2 — derive session_id, normalize file metadata, stamp received_at_ms.\nconst msg = $json.message || $json;\nconst chatId = msg.chat && msg.chat.id;\nconst messageId = msg.message_id;\nconst mediaGroupId = msg.media_group_id || null;\nconst sessionId = `${chatId}_${mediaGroupId || messageId}`;\nconst nowMs = Date.now();\nconst nowIso = new Date(nowMs).toISOString();\n\nlet file = null;\nif (msg.document) {\n  file = {\n    file_id: msg.document.file_id,\n    file_unique_id: msg.document.file_unique_id,\n    file_name: msg.document.file_name || `doc_${messageId}`,\n    mime_type: msg.document.mime_type || 'application/octet-stream',\n    file_size: msg.document.file_size || 0\n  };\n} else if (Array.isArray(msg.photo) && msg.photo.length > 0) {\n  const largest = msg.photo[msg.photo.length - 1];\n  file = {\n    file_id: largest.file_id,\n    file_unique_id: largest.file_unique_id,\n    file_name: `photo_${messageId}.jpg`,\n    mime_type: 'image/jpeg',\n    file_size: largest.file_size || 0\n  };\n} else {\n  return { json: { skip: true, reason: 'no_document_or_photo' } };\n}\n\nconst metaForSet = {\n  session_id: sessionId,\n  chat_id: chatId,\n  user_id: msg.from && msg.from.id,\n  username: (msg.from && msg.from.username) || null,\n  message_id: messageId,\n  media_group_id: mediaGroupId,\n  started_at: nowIso,\n  received_at_ms: nowMs,\n  file: file\n};\n\nreturn {\n  json: {\n    session_id: sessionId,\n    chat_id: chatId,\n    user_id: msg.from && msg.from.id,\n    username: (msg.from && msg.from.username) || null,\n    message_id: messageId,\n    media_group_id: mediaGroupId,\n    started_at: nowIso,\n    received_at_ms: nowMs,\n    received_at_iso: nowIso,\n    file: file,\n    file_meta_json: JSON.stringify(metaForSet)\n  }\n};"
+        "mode": "runOnceForAllItems",
+        "jsCode": "// WF01 — read the Python aiogram intake payload and enrich every file row\n// with the per-file metadata WF02b's Expand Statements expects.\nconst inp = $input.first().json;\nconst body = inp.body || inp;\nconst chat_id = body.chat_id;\nconst session_id = body.session_id;\nconst files = Array.isArray(body.files) ? body.files : [];\nconst target_folder_id = body.target_folder_id || '';\nconst target_folder_name = body.target_folder_name || '';\nconst model_tier = body.model_tier || 'haiku';\nconst callback_url = body.callback_url || '';\nconst user_id = body.user_id || chat_id;\nconst username = body.username || '';\nconst first_name = body.first_name || '';\nconst nowMs = Date.now();\nconst nowIso = new Date(nowMs).toISOString();\n\nconst enriched = files.map((f, idx) => ({\n  file_id: f.file_id,\n  file_unique_id: f.file_id,\n  file_name: f.file_name,\n  mime_type: f.mime_type || 'application/pdf',\n  file_size: f.file_size || 0,\n  page_count: f.page_count || 0,\n  session_id,\n  chat_id,\n  user_id,\n  username,\n  first_name,\n  message_id: nowMs + idx,\n  media_group_id: null,\n  received_at_ms: nowMs\n}));\n\nreturn [{\n  json: {\n    session_id,\n    chat_id,\n    user_id,\n    username,\n    first_name,\n    started_at: nowIso,\n    files: enriched,\n    files_count: enriched.length,\n    target_folder_id,\n    target_folder_name,\n    model_tier,\n    callback_url,\n    leader_file_unique_id: (enriched[0] && enriched[0].file_unique_id) || '',\n    leader_received_at_ms: nowMs\n  }\n}];"
       }
     },
     {
-      "id": "node-http-sadd",
-      "name": "HTTP: SADD album",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [640, 300],
-      "parameters": {
-        "method": "POST",
-        "url": "=https://settling-raccoon-132305.upstash.io/sadd/album:{{ $json.session_id }}/{{ encodeURIComponent($json.file_meta_json) }}",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendBody": false,
-        "options": {
-          "response": { "response": { "responseFormat": "json" } },
-          "timeout": 5000
-        }
-      },
-      "credentials": { "httpHeaderAuth": { "id": "94kqqEC4poMgzdE1", "name": "P3_bot Upstash Redis" } },
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 800,
-      "onError": "continueRegularOutput",
-      "alwaysOutputData": true
-    },
-    {
-      "id": "node-http-expire",
-      "name": "HTTP: EXPIRE album",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [860, 300],
-      "parameters": {
-        "method": "POST",
-        "url": "=https://settling-raccoon-132305.upstash.io/expire/album:{{ $('Compute Session ID').item.json.session_id }}/30",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendBody": false,
-        "options": {
-          "response": { "response": { "responseFormat": "json" } },
-          "timeout": 5000
-        }
-      },
-      "credentials": { "httpHeaderAuth": { "id": "94kqqEC4poMgzdE1", "name": "P3_bot Upstash Redis" } },
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 800,
-      "onError": "continueRegularOutput",
-      "alwaysOutputData": true
-    },
-    {
-      "id": "node-http-trylock",
-      "name": "HTTP: TRY LOCK",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [1080, 300],
-      "parameters": {
-        "method": "POST",
-        "url": "=https://settling-raccoon-132305.upstash.io/set/lock:{{ $('Compute Session ID').item.json.session_id }}/{{ $('Compute Session ID').item.json.file.file_unique_id }}/NX/EX/30",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendBody": false,
-        "options": {
-          "response": { "response": { "responseFormat": "json" } },
-          "timeout": 5000
-        }
-      },
-      "credentials": { "httpHeaderAuth": { "id": "94kqqEC4poMgzdE1", "name": "P3_bot Upstash Redis" } },
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 800,
-      "onError": "continueRegularOutput",
-      "alwaysOutputData": true
-    },
-    {
-      "id": "node-decide-leader",
-      "name": "Decide Leader",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [1300, 300],
-      "parameters": {
-        "mode": "runOnceForEachItem",
-        "jsCode": "// WF01 — interpret TRY LOCK response, set lock_won/degraded.\n// HTTP response shape: { result: 'OK' } when SET NX succeeded; { result: null } when key already exists.\n// With onError: continueRegularOutput, transport errors come through as { error: ... }.\nconst _passthrough = $json;\nconst tryLockResp = $('HTTP: TRY LOCK').first().json;\nconst meta = $('Compute Session ID').item.json;\nif (meta.skip) return { json: { ...meta, lock_won: false, degraded: false, skip: true } };\n\nlet lockWon = false;\nlet degraded = false;\nlet degradedReason = null;\n\nif (tryLockResp && tryLockResp.error) {\n  degraded = true;\n  degradedReason = 'try_lock_http_failed:' + JSON.stringify(tryLockResp.error).slice(0, 120);\n} else if (tryLockResp && tryLockResp.result === 'OK') {\n  lockWon = true;\n} else if (tryLockResp && (tryLockResp.result === null || tryLockResp.result === undefined)) {\n  lockWon = false;\n} else {\n  degraded = true;\n  degradedReason = 'try_lock_unexpected:' + JSON.stringify(tryLockResp).slice(0, 200);\n}\n\nreturn { json: { ...meta, lock_won: lockWon, degraded: degraded, degraded_reason: degradedReason } };"
-      }
-    },
-    {
-      "id": "node-wait",
-      "name": "Wait 10s (album buffer)",
-      "type": "n8n-nodes-base.wait",
-      "typeVersion": 1.1,
-      "position": [1520, 300],
-      "parameters": { "amount": 10, "unit": "seconds" },
-      "webhookId": "df8d2de5-daf6-464b-9438-d45ee77da900"
-    },
-    {
-      "id": "node-http-smembers",
-      "name": "HTTP: SMEMBERS album",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [1740, 300],
-      "parameters": {
-        "method": "GET",
-        "url": "=https://settling-raccoon-132305.upstash.io/smembers/album:{{ $('Compute Session ID').item.json.session_id }}",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "options": {
-          "response": { "response": { "responseFormat": "json" } },
-          "timeout": 5000
-        }
-      },
-      "credentials": { "httpHeaderAuth": { "id": "94kqqEC4poMgzdE1", "name": "P3_bot Upstash Redis" } },
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 800,
-      "onError": "continueRegularOutput",
-      "alwaysOutputData": true
-    },
-    {
-      "id": "node-drain",
-      "name": "Drain",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [1960, 300],
-      "parameters": {
-        "mode": "runOnceForEachItem",
-        "jsCode": "// WF01 — leader builds consolidated album payload; non-leader exits silently.\n// CRITICAL: by the time Drain runs, $json is the SMEMBERS HTTP response\n// ({result:[...]}). Each HTTP node replaces the current item with its response,\n// so previous fields (session_id, lock_won, degraded) are NOT on $json.\n// Read state from upstream nodes by name — never rely on $json field carryover.\nconst meta = $('Compute Session ID').item.json;\nif (meta.skip) return null;\n\nconst dec = $('Decide Leader').item.json;\nconst smembersResp = $('HTTP: SMEMBERS album').first().json;\n\nfunction singleFilePayload(reason) {\n  let oneFile;\n  try { oneFile = JSON.parse(meta.file_meta_json); }\n  catch (_) {\n    oneFile = {\n      session_id: meta.session_id,\n      chat_id: meta.chat_id,\n      user_id: meta.user_id,\n      username: meta.username,\n      message_id: meta.message_id,\n      media_group_id: meta.media_group_id,\n      started_at: meta.started_at,\n      received_at_ms: meta.received_at_ms,\n      file: meta.file\n    };\n  }\n  return { json: {\n    session_id: meta.session_id,\n    files: [oneFile],\n    files_count: 1,\n    leader_file_unique_id: (meta.file && meta.file.file_unique_id) || '',\n    leader_received_at_ms: meta.received_at_ms,\n    degraded: true,\n    degraded_reason: reason\n  }};\n}\n\nif (dec.degraded === true) return singleFilePayload(dec.degraded_reason || 'try_lock_failed');\n\nif (!dec.lock_won) return null;\n\nif (!smembersResp || smembersResp.error) {\n  const reason = 'smembers_http_failed:' + JSON.stringify((smembersResp && smembersResp.error) || 'no_response').slice(0, 120);\n  return singleFilePayload(reason);\n}\n\nconst members = (Array.isArray(smembersResp.result) ? smembersResp.result : []);\nconst files = [];\nfor (const m of members) {\n  try { files.push(JSON.parse(m)); } catch (_) {}\n}\n\nfiles.sort((a, b) => {\n  const dt = Number(a.received_at_ms || 0) - Number(b.received_at_ms || 0);\n  if (dt !== 0) return dt;\n  return String((a.file && a.file.file_unique_id) || '')\n    .localeCompare(String((b.file && b.file.file_unique_id) || ''));\n});\n\nif (files.length === 0) {\n  return singleFilePayload('smembers_empty_set');\n}\n\nconst leader = files[0] || {};\n\nreturn { json: {\n  session_id: meta.session_id,\n  files: files,\n  files_count: files.length,\n  leader_file_unique_id: (leader.file && leader.file.file_unique_id) || '',\n  leader_received_at_ms: leader.received_at_ms || meta.received_at_ms,\n  degraded: false\n}};"
-      }
-    },
-    {
-      "id": "node-if-emitted",
-      "name": "IF emitted_session?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [2180, 300],
-      "parameters": {
-        "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 2 },
-          "conditions": [
-            {
-              "id": "rule-emitted",
-              "leftValue": "={{ ($json.files || []).length }}",
-              "rightValue": 0,
-              "operator": { "type": "number", "operation": "gt" }
-            }
-          ],
-          "combinator": "and"
-        },
-        "looseTypeValidation": true,
-        "options": {}
-      }
-    },
-    {
-      "id": "node-if-degraded",
-      "name": "IF degraded?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [2400, 300],
-      "parameters": {
-        "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 2 },
-          "conditions": [
-            {
-              "id": "rule-degraded",
-              "leftValue": "={{ $json.degraded ? 1 : 0 }}",
-              "rightValue": 0,
-              "operator": { "type": "number", "operation": "gt" }
-            }
-          ],
-          "combinator": "and"
-        },
-        "looseTypeValidation": true,
-        "options": {}
-      }
-    },
-    {
-      "id": "node-sheets-log-degraded",
-      "name": "Sheets: log degraded session",
-      "type": "n8n-nodes-base.googleSheets",
-      "typeVersion": 4.7,
-      "position": [2620, 180],
-      "parameters": {
-        "resource": "sheet",
-        "operation": "append",
-        "documentId": { "__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet" },
-        "sheetName": { "__rl": true, "mode": "name", "value": "_errors", "cachedResultName": "_errors" },
-        "columns": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "timestamp": "={{ $now.toISO() }}",
-            "session_id": "={{ $json.session_id }}",
-            "file_id": "={{ $json.leader_file_unique_id }}",
-            "workflow_id": "={{ $workflow.id }}",
-            "node": "WF01 Drain (degraded)",
-            "error_text": "={{ $json.degraded_reason }}",
-            "payload_redacted": "={{ JSON.stringify({ session_id: $json.session_id, files_count: ($json.files||[]).length, leader_file_unique_id: $json.leader_file_unique_id }) }}",
-            "retry_count": 0
-          },
-          "schema": [
-            { "id": "timestamp", "type": "string", "display": true, "displayName": "timestamp" },
-            { "id": "session_id", "type": "string", "display": true, "displayName": "session_id" },
-            { "id": "file_id", "type": "string", "display": true, "displayName": "file_id" },
-            { "id": "workflow_id", "type": "string", "display": true, "displayName": "workflow_id" },
-            { "id": "node", "type": "string", "display": true, "displayName": "node" },
-            { "id": "error_text", "type": "string", "display": true, "displayName": "error_text" },
-            { "id": "payload_redacted", "type": "string", "display": true, "displayName": "payload_redacted" },
-            { "id": "retry_count", "type": "number", "display": true, "displayName": "retry_count" }
-          ]
-        },
-        "options": { "useAppend": true }
-      },
-      "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } },
-      "onError": "continueRegularOutput"
-    },
-    {
-      "id": "node-switch",
+      "id": "wf01-switch",
       "name": "Switch: files > 6?",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.4,
-      "position": [2840, 380],
+      "position": [640, 300],
       "parameters": {
         "mode": "rules",
         "rules": {
           "values": [
             {
               "conditions": {
-                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
                 "conditions": [
                   {
                     "id": "rule-too-many",
                     "leftValue": "={{ ($json.files || []).length }}",
                     "rightValue": 6,
-                    "operator": { "type": "number", "operation": "gt" }
+                    "operator": {
+                      "type": "number",
+                      "operation": "gt"
+                    }
                   }
                 ],
                 "combinator": "and"
@@ -264,114 +73,138 @@
           ]
         },
         "looseTypeValidation": true,
-        "options": { "fallbackOutput": "extra", "renameFallbackOutput": "ok" }
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "ok"
+        }
       }
     },
     {
-      "id": "node-tg-toomany",
-      "name": "Telegram: too many files",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
-      "position": [3060, 260],
+      "id": "wf01-http-toomany",
+      "name": "HTTP: too-many callback",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [860, 180],
       "parameters": {
-        "resource": "message",
-        "operation": "sendMessage",
-        "chatId": "={{ ($json.files && $json.files[0] && $json.files[0].chat_id) || '' }}",
-        "text": "Отправь не более 6 файлов за раз — остальные я не обработаю в одной сессии.",
-        "additionalFields": { "appendAttribution": false }
+        "method": "POST",
+        "url": "={{ $json.callback_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $json.chat_id, session_id: $json.session_id, xlsx_url: '', summary: 'Слишком много файлов за раз (максимум 6).', error: 'too_many_files' }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        }
       },
-      "credentials": { "telegramApi": { "id": "awqlBtw3tG6HJGW1", "name": "Telegram account 2" } },
-      "webhookId": "4e618990-fe70-45e4-ad5e-a09520971f0b"
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "2oRQsjg0OiMU7Eq3",
+          "name": "X-Callback-Token"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
     },
     {
-      "id": "node-sheets-session",
+      "id": "wf01-sessions",
       "name": "Sessions: Append or Update",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
-      "position": [3060, 500],
+      "position": [860, 420],
       "parameters": {
         "resource": "sheet",
         "operation": "appendOrUpdate",
-        "documentId": { "__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet" },
-        "sheetName": { "__rl": true, "mode": "name", "value": "sessions", "cachedResultName": "sessions" },
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w",
+          "cachedResultName": "P3_bot Sheet"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "sessions",
+          "cachedResultName": "sessions"
+        },
         "columns": {
           "mappingMode": "defineBelow",
           "matchingColumns": ["session_id"],
           "value": {
-            "session_id": "={{ $json.files[0].session_id }}",
-            "user_id": "={{ $json.files[0].user_id }}",
-            "username": "={{ $json.files[0].username }}",
-            "started_at": "={{ $json.files[0].started_at }}",
+            "session_id": "={{ $json.session_id }}",
+            "user_id": "={{ $json.user_id }}",
+            "username": "={{ $json.username }}",
+            "started_at": "={{ $json.started_at }}",
             "files_count": "={{ ($json.files || []).length }}",
             "status": "pending",
             "completed_at": "",
             "archive_url": "",
             "error_count": 0
-          },
-          "schema": [
-            { "id": "session_id", "type": "string", "display": true, "displayName": "session_id", "defaultMatch": true, "canBeUsedToMatch": true },
-            { "id": "user_id", "type": "number", "display": true, "displayName": "user_id" },
-            { "id": "username", "type": "string", "display": true, "displayName": "username" },
-            { "id": "started_at", "type": "string", "display": true, "displayName": "started_at" },
-            { "id": "files_count", "type": "number", "display": true, "displayName": "files_count" },
-            { "id": "status", "type": "string", "display": true, "displayName": "status" },
-            { "id": "completed_at", "type": "string", "display": true, "displayName": "completed_at" },
-            { "id": "archive_url", "type": "string", "display": true, "displayName": "archive_url" },
-            { "id": "error_count", "type": "number", "display": true, "displayName": "error_count" }
-          ]
+          }
         },
         "options": {}
       },
-      "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } }
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "vPYba8prk7sfff5g",
+          "name": "Google Sheets account"
+        }
+      }
     },
     {
-      "id": "node-exec-wf02",
-      "name": "Execute → WF02",
+      "id": "wf01-exec-wf02b",
+      "name": "Execute → WF02b",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.3,
-      "position": [3280, 500],
+      "position": [1080, 420],
       "parameters": {
         "source": "database",
-        "workflowId": { "__rl": true, "mode": "id", "value": "gezrarqZ3uixiQuj", "cachedResultName": "P3 — WF02b Extract Transactions" },
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "gezrarqZ3uixiQuj",
+          "cachedResultName": "P3 — WF02b Extract Transactions"
+        },
         "mode": "each",
         "options": {},
-        "workflowInputs": { "mappingMode": "autoMapInputData", "value": {}, "schema": [], "matchingColumns": [], "attemptToConvertTypes": false, "convertFieldsToString": true }
+        "workflowInputs": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "schema": [],
+          "matchingColumns": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        }
       }
     }
   ],
   "connections": {
-    "Telegram Trigger": { "main": [[{ "node": "Compute Session ID", "type": "main", "index": 0 }]] },
-    "Compute Session ID": { "main": [[{ "node": "HTTP: SADD album", "type": "main", "index": 0 }]] },
-    "HTTP: SADD album": { "main": [[{ "node": "HTTP: EXPIRE album", "type": "main", "index": 0 }]] },
-    "HTTP: EXPIRE album": { "main": [[{ "node": "HTTP: TRY LOCK", "type": "main", "index": 0 }]] },
-    "HTTP: TRY LOCK": { "main": [[{ "node": "Decide Leader", "type": "main", "index": 0 }]] },
-    "Decide Leader": { "main": [[{ "node": "Wait 10s (album buffer)", "type": "main", "index": 0 }]] },
-    "Wait 10s (album buffer)": { "main": [[{ "node": "HTTP: SMEMBERS album", "type": "main", "index": 0 }]] },
-    "HTTP: SMEMBERS album": { "main": [[{ "node": "Drain", "type": "main", "index": 0 }]] },
-    "Drain": { "main": [[{ "node": "IF emitted_session?", "type": "main", "index": 0 }]] },
-    "IF emitted_session?": {
-      "main": [
-        [{ "node": "IF degraded?", "type": "main", "index": 0 }],
-        []
-      ]
+    "Webhook: Python Intake": {
+      "main": [[{"node": "Normalize Input", "type": "main", "index": 0}]]
     },
-    "IF degraded?": {
-      "main": [
-        [{ "node": "Sheets: log degraded session", "type": "main", "index": 0 }],
-        [{ "node": "Switch: files > 6?", "type": "main", "index": 0 }]
-      ]
+    "Normalize Input": {
+      "main": [[{"node": "Switch: files > 6?", "type": "main", "index": 0}]]
     },
-    "Sheets: log degraded session": { "main": [[{ "node": "Switch: files > 6?", "type": "main", "index": 0 }]] },
     "Switch: files > 6?": {
       "main": [
-        [{ "node": "Telegram: too many files", "type": "main", "index": 0 }],
+        [{"node": "HTTP: too-many callback", "type": "main", "index": 0}],
         [
-          { "node": "Sessions: Append or Update", "type": "main", "index": 0 },
-          { "node": "Execute → WF02", "type": "main", "index": 0 }
+          {"node": "Sessions: Append or Update", "type": "main", "index": 0},
+          {"node": "Execute → WF02b", "type": "main", "index": 0}
         ]
       ]
     }
   },
-  "settings": { "executionOrder": "v1", "errorWorkflow": "NZ46OvGw49tzN5FS" },
-  "tags": []
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "NZ46OvGw49tzN5FS"
+  }
 }
