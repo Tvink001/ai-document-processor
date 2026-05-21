@@ -253,10 +253,27 @@ function handleBuildXlsx(body) {
   }
 
   // 6. Export as XLSX → Drive archive folder.
+  // DriveApp.getFileById(ssId).getBlob() on a Google Sheet returns a PDF
+  // blob by default (Drive's default export type), and .getAs('...xlsx')
+  // can't transcode PDF → xlsx. Use Drive's REST export endpoint with the
+  // script's OAuth token to get the native xlsx blob directly.
   SpreadsheetApp.flush();
-  const xlsxBlob = DriveApp.getFileById(ssId)
-    .getBlob()
-    .getAs('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  const exportUrl =
+    'https://docs.google.com/spreadsheets/d/' + ssId + '/export?format=xlsx';
+  const exportResp = UrlFetchApp.fetch(exportUrl, {
+    method: 'get',
+    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true,
+  });
+  if (exportResp.getResponseCode() !== 200) {
+    try { DriveApp.getFileById(ssId).setTrashed(true); } catch (cleanupErr) {}
+    return jsonResponse({
+      error: 'xlsx_export_failed',
+      status: exportResp.getResponseCode(),
+      body: exportResp.getContentText().slice(0, 300),
+    });
+  }
+  const xlsxBlob = exportResp.getBlob();
   xlsxBlob.setName(sessionId + '.xlsx');
   const folder = DriveApp.getFolderById(folderId);
   // Overwrite previous attempts with same session_id.
