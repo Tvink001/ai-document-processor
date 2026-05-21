@@ -332,7 +332,7 @@
       "position": [3280, 500],
       "parameters": {
         "source": "database",
-        "workflowId": { "__rl": true, "mode": "id", "value": "7XllTLmW3Pzchqv6", "cachedResultName": "P3 — WF02 Extract & Classify" },
+        "workflowId": { "__rl": true, "mode": "id", "value": "gezrarqZ3uixiQuj", "cachedResultName": "P3 — WF02b Extract Transactions" },
         "mode": "each",
         "options": {},
         "workflowInputs": { "mappingMode": "autoMapInputData", "value": {}, "schema": [], "matchingColumns": [], "attemptToConvertTypes": false, "convertFieldsToString": true }
