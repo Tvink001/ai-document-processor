@@ -40,7 +40,10 @@ build/
 tmp/
 *.tmp
 
-# Local golden dataset (large binaries — keep references in docs only)
-test-data/
-golden/
+# Local golden dataset — only PDFs are gitignored; README + JSON sidecars committed
+test-data/golden/*.pdf
+test-data/golden/*.PDF
+test-data/**/*.zip
+test-data/**/*.xlsx
+test-data/scratch/
 .mcp.json
