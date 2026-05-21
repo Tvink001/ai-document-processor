@@ -20,6 +20,7 @@ Pipeline per session:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import time
 from pathlib import Path
@@ -65,6 +66,9 @@ MSG_QUEUED_TEMPLATE = (
     "🔄 Принято {count} файл(ов), {pages} стр. суммарно.\n"
     "Маршрутизирую через {tier} — пришлю Excel, как только готов."
 )
+MSG_DEDUP_TEMPLATE = (
+    "♻ {dup} дубликат(ов) пропущено (тот же MD5). Обрабатываю {keep} уникальных."
+)
 
 
 async def _send_pdf_to_processor(
@@ -89,7 +93,7 @@ async def _send_pdf_to_processor(
         await first.answer(MSG_TOO_MANY.format(max=MAX_FILES_PER_SESSION))
         return
 
-    # Download + count pages.
+    # Download + count pages + compute MD5 (for in-batch dedup).
     tmp_paths: list[Path] = []
     files_meta: list[FileRef] = []
     try:
@@ -101,6 +105,7 @@ async def _send_pdf_to_processor(
             tmp_paths.append(tmp_path)
             await bot.download(doc.file_id, destination=tmp_path)
             pages = count_pages(tmp_path)
+            md5 = hashlib.md5(tmp_path.read_bytes()).hexdigest()
             files_meta.append(
                 FileRef(
                     file_id=doc.file_id,
@@ -108,8 +113,29 @@ async def _send_pdf_to_processor(
                     file_size=doc.file_size or 0,
                     mime_type=doc.mime_type or "application/pdf",
                     page_count=pages,
+                    md5=md5,
                 ),
             )
+
+        # In-batch dedup: identical MD5s = same content → keep first occurrence,
+        # drop the rest. Saves Anthropic spend + avoids huge cumulative-page
+        # routing (6 identical 23pp files should be 1 haiku call, not 138pp opus).
+        seen: set[str] = set()
+        deduped: list[FileRef] = []
+        for f in files_meta:
+            if f.md5 and f.md5 in seen:
+                continue
+            if f.md5:
+                seen.add(f.md5)
+            deduped.append(f)
+        dup_count = len(files_meta) - len(deduped)
+        files_meta = deduped
+        if dup_count > 0:
+            await first.answer(
+                MSG_DEDUP_TEMPLATE.format(dup=dup_count, keep=len(files_meta)),
+            )
+        if not files_meta:
+            return
 
         total_pages = sum(f.page_count for f in files_meta)
         if total_pages > HARD_REJECT_PAGES:

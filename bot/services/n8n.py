@@ -31,6 +31,7 @@ class FileRef(BaseModel):
     file_size: int
     mime_type: str
     page_count: int = Field(ge=0)
+    md5: str = ""  # content MD5 — used for in-batch dedup before n8n submit
 
 
 class SubmitFilesRequest(BaseModel):
