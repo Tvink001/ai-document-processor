@@ -1,7 +1,7 @@
 {
   "id": "lIVl7DWyBGMMJ7jK",
   "name": "P3 — WF04b Build XLSX & Reply",
-  "active": false,
+  "active": true,
   "nodes": [
     {
       "id": "node-wf04b-trigger",
@@ -9,7 +9,7 @@
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
       "position": [200, 300],
-      "parameters": { "inputSource": "passthrough" }
+      "parameters": {"inputSource": "passthrough"}
     },
     {
       "id": "node-read-statements",
@@ -18,12 +18,12 @@
       "typeVersion": 4.7,
       "position": [420, 300],
       "parameters": {
-        "documentId": { "__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet" },
-        "sheetName": { "__rl": true, "mode": "name", "value": "statements", "cachedResultName": "statements" },
-        "filtersUI": { "values": [{ "lookupColumn": "session_id", "lookupValue": "={{ $('When called by WF03b').first().json.session_id }}" }] },
-        "options": { "returnFirstMatch": false }
+        "documentId": {"__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet"},
+        "sheetName": {"__rl": true, "mode": "name", "value": "statements", "cachedResultName": "statements"},
+        "filtersUI": {"values": [{"lookupColumn": "session_id", "lookupValue": "={{ $('When called by WF03b').first().json.session_id }}"}]},
+        "options": {"returnFirstMatch": false}
       },
-      "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } },
+      "credentials": {"googleSheetsOAuth2Api": {"id": "vPYba8prk7sfff5g", "name": "Google Sheets account"}},
       "onError": "continueRegularOutput",
       "alwaysOutputData": true
     },
@@ -34,12 +34,12 @@
       "typeVersion": 4.7,
       "position": [640, 300],
       "parameters": {
-        "documentId": { "__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet" },
-        "sheetName": { "__rl": true, "mode": "name", "value": "transactions", "cachedResultName": "transactions" },
-        "filtersUI": { "values": [{ "lookupColumn": "session_id", "lookupValue": "={{ $('When called by WF03b').first().json.session_id }}" }] },
-        "options": { "returnFirstMatch": false }
+        "documentId": {"__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet"},
+        "sheetName": {"__rl": true, "mode": "name", "value": "transactions", "cachedResultName": "transactions"},
+        "filtersUI": {"values": [{"lookupColumn": "session_id", "lookupValue": "={{ $('When called by WF03b').first().json.session_id }}"}]},
+        "options": {"returnFirstMatch": false}
       },
-      "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } },
+      "credentials": {"googleSheetsOAuth2Api": {"id": "vPYba8prk7sfff5g", "name": "Google Sheets account"}},
       "onError": "continueRegularOutput",
       "alwaysOutputData": true
     },
@@ -50,11 +50,11 @@
       "typeVersion": 4.7,
       "position": [860, 300],
       "parameters": {
-        "documentId": { "__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet" },
-        "sheetName": { "__rl": true, "mode": "name", "value": "categories", "cachedResultName": "categories" },
+        "documentId": {"__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet"},
+        "sheetName": {"__rl": true, "mode": "name", "value": "categories", "cachedResultName": "categories"},
         "options": {}
       },
-      "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } },
+      "credentials": {"googleSheetsOAuth2Api": {"id": "vPYba8prk7sfff5g", "name": "Google Sheets account"}},
       "alwaysOutputData": true
     },
     {
@@ -65,7 +65,7 @@
       "position": [1080, 300],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// WF04b step 4 — assemble the payload for Apps Script build_xlsx + compute Telegram summary fields.\nconst statements = $('Read Statements by session_id').all().map(i => i.json).filter(s => s && s.session_id);\nconst transactions = $('Read Transactions by session_id').all().map(i => i.json).filter(t => t && t.session_id);\nconst categories = $('Read Categories').all().map(i => i.json);\nconst trigger = $('When called by WF03b').first().json;\nconst sessionId = trigger.session_id;\n\nif (statements.length === 0) {\n  return [{ json: { error: 'no_statements_for_session', session_id: sessionId } }];\n}\n\nconst pStarts = statements.map(s => s.period_start).filter(Boolean).sort();\nconst pEnds = statements.map(s => s.period_end).filter(Boolean).sort();\nconst periodStart = pStarts[0] || null;\nconst periodEnd = pEnds.length > 0 ? pEnds[pEnds.length - 1] : null;\n\nconst banks = Array.from(new Set(statements.map(s => s.bank).filter(Boolean)));\nconst currency = statements[0].currency || 'UAH';\n\nlet totalDebit = 0;\nlet totalCredit = 0;\nlet lowConfCount = 0;\nconst byCategory = {};\ntransactions.forEach(t => {\n  const amt = typeof t.amount === 'number' ? t.amount : (parseFloat(t.amount) || 0);\n  if (t.debit_credit === 'debit') totalDebit += amt;\n  else if (t.debit_credit === 'credit') totalCredit += amt;\n  const conf = typeof t.confidence === 'number' ? t.confidence : (parseFloat(t.confidence) || 0);\n  if (conf < 0.8) lowConfCount++;\n  const cat = t.category || 'other';\n  if (!byCategory[cat]) byCategory[cat] = { debit: 0, credit: 0, count: 0 };\n  byCategory[cat].count++;\n  if (t.debit_credit === 'debit') byCategory[cat].debit += amt;\n  else if (t.debit_credit === 'credit') byCategory[cat].credit += amt;\n});\n\nconst chatId = String(sessionId).split('_')[0];\n\nreturn [{\n  json: {\n    session_id: sessionId,\n    chat_id: chatId,\n    statements: statements,\n    transactions: transactions,\n    categories: categories,\n    summary: {\n      period_start: periodStart,\n      period_end: periodEnd,\n      banks: banks,\n      currency: currency,\n      total_debit: totalDebit,\n      total_credit: totalCredit,\n      transactions_count: transactions.length,\n      low_confidence_count: lowConfCount,\n      by_category: byCategory\n    }\n  }\n}];"
+        "jsCode": "// WF04b step 4 — assemble payload for Apps Script build_xlsx + Telegram summary fields.\n// chat_id and callback_url come from the WF03b trigger.\nconst statements = $('Read Statements by session_id').all().map(i => i.json).filter(s => s && s.session_id);\nconst transactions = $('Read Transactions by session_id').all().map(i => i.json).filter(t => t && t.session_id);\nconst categories = $('Read Categories').all().map(i => i.json);\nconst trigger = $('When called by WF03b').first().json;\nconst sessionId = trigger.session_id;\nconst callbackUrl = trigger.callback_url || '';\nconst targetFolderName = trigger.target_folder_name || '';\nconst chatId = trigger.chat_id || Number(String(sessionId).split('_')[0]) || 0;\nif (statements.length === 0) {\n  return [{ json: { error: 'no_statements_for_session', session_id: sessionId, callback_url: callbackUrl, chat_id: chatId } }];\n}\nconst pStarts = statements.map(s => s.period_start).filter(Boolean).sort();\nconst pEnds = statements.map(s => s.period_end).filter(Boolean).sort();\nconst periodStart = pStarts[0] || null;\nconst periodEnd = pEnds.length > 0 ? pEnds[pEnds.length - 1] : null;\nconst banks = Array.from(new Set(statements.map(s => s.bank).filter(Boolean)));\nconst currency = statements[0].currency || 'UAH';\nlet totalDebit = 0, totalCredit = 0, lowConfCount = 0;\nconst byCategory = {};\ntransactions.forEach(t => {\n  const amt = typeof t.amount === 'number' ? t.amount : (parseFloat(t.amount) || 0);\n  if (t.debit_credit === 'debit') totalDebit += amt;\n  else if (t.debit_credit === 'credit') totalCredit += amt;\n  const conf = typeof t.confidence === 'number' ? t.confidence : (parseFloat(t.confidence) || 0);\n  if (conf < 0.8) lowConfCount++;\n  const cat = t.category || 'other';\n  if (!byCategory[cat]) byCategory[cat] = { debit: 0, credit: 0, count: 0 };\n  byCategory[cat].count++;\n  if (t.debit_credit === 'debit') byCategory[cat].debit += amt;\n  else if (t.debit_credit === 'credit') byCategory[cat].credit += amt;\n});\nreturn [{ json: { session_id: sessionId, chat_id: chatId, callback_url: callbackUrl, target_folder_name: targetFolderName, statements, transactions, categories, summary: { period_start: periodStart, period_end: periodEnd, banks, currency, total_debit: totalDebit, total_credit: totalCredit, transactions_count: transactions.length, low_confidence_count: lowConfCount, by_category: byCategory }}}];"
       }
     },
     {
@@ -83,9 +83,9 @@
         "contentType": "json",
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ action: 'build_xlsx', session_id: $json.session_id, chat_id: $json.chat_id, drive_folder_id: '1OvuG8ZTHlvF375Oj0GscdtH0nH8iadRU', statements: $json.statements, transactions: $json.transactions, categories: $json.categories }) }}",
-        "options": { "response": { "response": { "responseFormat": "json" } }, "timeout": 120000 }
+        "options": {"response": {"response": {"responseFormat": "json"}}, "timeout": 120000}
       },
-      "credentials": { "httpQueryAuth": { "id": "9V4YLEeu2ChBqEd5", "name": "P3_bot Apps Script Token" } },
+      "credentials": {"httpQueryAuth": {"id": "9V4YLEeu2ChBqEd5", "name": "P3_bot Apps Script Token"}},
       "onError": "continueRegularOutput"
     },
     {
@@ -96,25 +96,32 @@
       "position": [1520, 300],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// WF04b step 6 — assemble Telegram message text from the aggregate + xlsx URL.\nconst agg = $('Aggregate For XLSX').first().json;\nconst xlsxResp = $input.first().json;\nconst xlsxUrl = xlsxResp.xlsx_url || 'https://drive.google.com/drive/folders/1OvuG8ZTHlvF375Oj0GscdtH0nH8iadRU';\nconst s = agg.summary || {};\nconst sessionId = agg.session_id;\nconst chatId = agg.chat_id;\n\nconst esc = (x) => String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst fmt = (n) => {\n  if (typeof n !== 'number' || isNaN(n)) return '0';\n  return Math.round(n).toLocaleString('uk-UA').replace(/,/g, ' ');\n};\n\nconst pluralTx = (n) => {\n  const mod10 = n % 10;\n  const mod100 = n % 100;\n  if (mod10 === 1 && mod100 !== 11) return 'транзакция';\n  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'транзакции';\n  return 'транзакций';\n};\nconst pluralOp = (n) => {\n  const mod10 = n % 10;\n  const mod100 = n % 100;\n  if (mod10 === 1 && mod100 !== 11) return 'операція';\n  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'операції';\n  return 'операцій';\n};\n\nconst banks = (s.banks || []).join(', ') || '?';\nconst periodStr = `${s.period_start || '?'} – ${s.period_end || '?'}`;\n\nconst catNameById = {};\n(agg.categories || []).forEach(c => { if (c.id) catNameById[c.id] = c.name_ua || c.id; });\n\nconst catEntries = Object.entries(s.by_category || {});\ncatEntries.sort((a, b) => b[1].debit - a[1].debit);\nconst top3 = catEntries.slice(0, 3);\nconst topLines = top3.length === 0 ? '—' : top3.map(([catId, c]) => {\n  const name = catNameById[catId] || catId;\n  return `• ${esc(name)}: ${fmt(c.debit)} ${esc(s.currency || 'UAH')} (${c.count} ${pluralOp(c.count)})`;\n}).join('\\n');\n\nlet lowConfWarn = '';\nif (s.low_confidence_count > 0) {\n  lowConfWarn = `\\n\\n⚠ ${s.low_confidence_count} ${pluralTx(s.low_confidence_count)} требуют проверки (отмечены жёлтым в Excel).`;\n}\n\nconst headerEmoji = (s.low_confidence_count || 0) === 0 ? '✅' : '⚠';\nconst txCount = s.transactions_count || 0;\n\nconst text = `${headerEmoji} Обработано ${txCount} ${pluralTx(txCount)} за период ${esc(periodStr)} (${esc(banks)}).\\n\\n💸 Расходы: ${fmt(s.total_debit)} ${esc(s.currency || 'UAH')}\\n💰 Доходы: ${fmt(s.total_credit)} ${esc(s.currency || 'UAH')}\\n\\n📊 Топ-3 категории:\\n${topLines}${lowConfWarn}\\n\\n📥 Excel: ${xlsxUrl}`;\n\nreturn [{\n  json: {\n    session_id: sessionId,\n    chat_id: chatId,\n    text: text,\n    xlsx_url: xlsxUrl,\n    completed_at: new Date().toISOString()\n  }\n}];"
+        "jsCode": "// WF04b step 6 — plain-text summary for the Python callback to wrap in Telegram.\nconst agg = $('Aggregate For XLSX').first().json;\nconst xlsxResp = $input.first().json;\nconst xlsxUrl = xlsxResp.xlsx_url || '';\nconst callbackUrl = agg.callback_url || '';\nconst s = agg.summary || {};\nconst sessionId = agg.session_id;\nconst chatId = Number(agg.chat_id) || 0;\nconst folderHint = agg.target_folder_name ? ` (Папка: ${agg.target_folder_name})` : '';\nconst fmt = (n) => (typeof n !== 'number' || isNaN(n)) ? '0' : Math.round(n).toLocaleString('uk-UA').replace(/,/g, ' ');\nconst pluralTx = (n) => { const mod10 = n % 10, mod100 = n % 100; if (mod10 === 1 && mod100 !== 11) return 'транзакция'; if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'транзакции'; return 'транзакций'; };\nconst pluralOp = (n) => { const mod10 = n % 10, mod100 = n % 100; if (mod10 === 1 && mod100 !== 11) return 'операція'; if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'операції'; return 'операцій'; };\nconst banks = (s.banks || []).join(', ') || '?';\nconst periodStr = `${s.period_start || '?'} – ${s.period_end || '?'}`;\nconst catNameById = {};\n(agg.categories || []).forEach(c => { if (c.id) catNameById[c.id] = c.name_ua || c.id; });\nconst catEntries = Object.entries(s.by_category || {});\ncatEntries.sort((a, b) => b[1].debit - a[1].debit);\nconst top3 = catEntries.slice(0, 3);\nconst topLines = top3.length === 0 ? '—' : top3.map(([catId, c]) => { const name = catNameById[catId] || catId; return `• ${name}: ${fmt(c.debit)} ${s.currency || 'UAH'} (${c.count} ${pluralOp(c.count)})`; }).join('\\n');\nlet lowConfWarn = '';\nif (s.low_confidence_count > 0) lowConfWarn = `\\n\\n⚠ ${s.low_confidence_count} ${pluralTx(s.low_confidence_count)} требуют проверки (отмечены жёлтым в Excel).`;\nconst txCount = s.transactions_count || 0;\nconst summaryText = `Обработано ${txCount} ${pluralTx(txCount)} за период ${periodStr} (${banks})${folderHint}.\\n\\n💸 Расходы: ${fmt(s.total_debit)} ${s.currency || 'UAH'}\\n💰 Доходы: ${fmt(s.total_credit)} ${s.currency || 'UAH'}\\n\\n📊 Топ-3 категории:\\n${topLines}${lowConfWarn}`;\nreturn [{ json: { session_id: sessionId, chat_id: chatId, summary: summaryText, xlsx_url: xlsxUrl, callback_url: callbackUrl, completed_at: new Date().toISOString() }}];"
       }
     },
     {
-      "id": "node-tg-send",
-      "name": "Telegram: Send Reply",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
+      "id": "node-http-callback",
+      "name": "HTTP: Callback to Python",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
       "position": [1740, 300],
       "parameters": {
-        "resource": "message",
-        "operation": "sendMessage",
-        "chatId": "={{ $json.chat_id }}",
-        "text": "={{ $json.text }}",
-        "additionalFields": { "parse_mode": "HTML", "appendAttribution": false }
+        "method": "POST",
+        "url": "={{ $json.callback_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $json.chat_id, session_id: $json.session_id, xlsx_url: $json.xlsx_url, summary: $json.summary, completed_at: $json.completed_at }) }}",
+        "options": {"response": {"response": {"responseFormat": "json"}}, "timeout": 30000}
       },
-      "credentials": { "telegramApi": { "id": "awqlBtw3tG6HJGW1", "name": "Telegram account 2" } },
+      "credentials": {"httpHeaderAuth": {"id": "2oRQsjg0OiMU7Eq3", "name": "X-Callback-Token"}},
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
       "onError": "continueRegularOutput",
-      "webhookId": "p3-wf04b-tg-send"
+      "alwaysOutputData": true
     },
     {
       "id": "node-sessions-done",
@@ -125,8 +132,8 @@
       "parameters": {
         "resource": "sheet",
         "operation": "update",
-        "documentId": { "__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet" },
-        "sheetName": { "__rl": true, "mode": "name", "value": "sessions", "cachedResultName": "sessions" },
+        "documentId": {"__rl": true, "mode": "id", "value": "1tl3rvKeaMrreDfjQMQQPlZF6hGYbG-h0Ft4BroPRw_w", "cachedResultName": "P3_bot Sheet"},
+        "sheetName": {"__rl": true, "mode": "name", "value": "sessions", "cachedResultName": "sessions"},
         "columns": {
           "mappingMode": "defineBelow",
           "matchingColumns": ["session_id"],
@@ -135,30 +142,23 @@
             "status": "done",
             "completed_at": "={{ $('Format Reply').first().json.completed_at }}",
             "archive_url": "={{ $('Format Reply').first().json.xlsx_url }}"
-          },
-          "schema": [
-            { "id": "session_id", "type": "string", "display": true, "displayName": "session_id", "defaultMatch": true, "canBeUsedToMatch": true },
-            { "id": "status", "type": "string", "display": true, "displayName": "status" },
-            { "id": "completed_at", "type": "string", "display": true, "displayName": "completed_at" },
-            { "id": "archive_url", "type": "string", "display": true, "displayName": "archive_url" }
-          ]
+          }
         },
         "options": {}
       },
-      "credentials": { "googleSheetsOAuth2Api": { "id": "vPYba8prk7sfff5g", "name": "Google Sheets account" } },
+      "credentials": {"googleSheetsOAuth2Api": {"id": "vPYba8prk7sfff5g", "name": "Google Sheets account"}},
       "onError": "continueRegularOutput"
     }
   ],
   "connections": {
-    "When called by WF03b": { "main": [[{ "node": "Read Statements by session_id", "type": "main", "index": 0 }]] },
-    "Read Statements by session_id": { "main": [[{ "node": "Read Transactions by session_id", "type": "main", "index": 0 }]] },
-    "Read Transactions by session_id": { "main": [[{ "node": "Read Categories", "type": "main", "index": 0 }]] },
-    "Read Categories": { "main": [[{ "node": "Aggregate For XLSX", "type": "main", "index": 0 }]] },
-    "Aggregate For XLSX": { "main": [[{ "node": "HTTP: Build XLSX (Apps Script)", "type": "main", "index": 0 }]] },
-    "HTTP: Build XLSX (Apps Script)": { "main": [[{ "node": "Format Reply", "type": "main", "index": 0 }]] },
-    "Format Reply": { "main": [[{ "node": "Telegram: Send Reply", "type": "main", "index": 0 }]] },
-    "Telegram: Send Reply": { "main": [[{ "node": "Sessions: Mark Done", "type": "main", "index": 0 }]] }
+    "When called by WF03b": {"main": [[{"node": "Read Statements by session_id", "type": "main", "index": 0}]]},
+    "Read Statements by session_id": {"main": [[{"node": "Read Transactions by session_id", "type": "main", "index": 0}]]},
+    "Read Transactions by session_id": {"main": [[{"node": "Read Categories", "type": "main", "index": 0}]]},
+    "Read Categories": {"main": [[{"node": "Aggregate For XLSX", "type": "main", "index": 0}]]},
+    "Aggregate For XLSX": {"main": [[{"node": "HTTP: Build XLSX (Apps Script)", "type": "main", "index": 0}]]},
+    "HTTP: Build XLSX (Apps Script)": {"main": [[{"node": "Format Reply", "type": "main", "index": 0}]]},
+    "Format Reply": {"main": [[{"node": "HTTP: Callback to Python", "type": "main", "index": 0}]]},
+    "HTTP: Callback to Python": {"main": [[{"node": "Sessions: Mark Done", "type": "main", "index": 0}]]}
   },
-  "settings": { "executionOrder": "v1", "errorWorkflow": "NZ46OvGw49tzN5FS" },
-  "tags": []
+  "settings": {"executionOrder": "v1", "errorWorkflow": "NZ46OvGw49tzN5FS"}
 }
