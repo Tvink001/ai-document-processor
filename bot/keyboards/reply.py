@@ -34,15 +34,14 @@ def main_reply_no_folder() -> ReplyKeyboardMarkup:
 
 
 def main_reply_with_folder(folder_name: str) -> ReplyKeyboardMarkup:
+    """Minimalist in-folder keyboard — drop PDFs is implicit; only exit
+    needs a button. (Switch folder = leave first, then open from root.)"""
     short = folder_name if len(folder_name) <= 20 else folder_name[:17] + "…"
-    send_label = f"📄 В «{short}»"
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text=send_label)],
-            [KeyboardButton(text=BTN_CREATE), KeyboardButton(text=BTN_OPEN)],
             [KeyboardButton(text=BTN_LEAVE)],
         ],
         resize_keyboard=True,
         is_persistent=True,
-        input_field_placeholder=f"📂 {short} — перетащи PDF или выбери действие…",
+        input_field_placeholder=f"📂 {short} — перетащи PDF…",
     )

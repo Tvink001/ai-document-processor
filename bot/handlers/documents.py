@@ -111,17 +111,17 @@ async def _send_pdf_to_processor(
                 ),
             )
 
-        max_pages = max(f.page_count for f in files_meta)
-        if max_pages > HARD_REJECT_PAGES:
+        total_pages = sum(f.page_count for f in files_meta)
+        if total_pages > HARD_REJECT_PAGES:
             await first.answer(
-                MSG_TOO_LARGE.format(pages=max_pages, max=HARD_REJECT_PAGES),
+                MSG_TOO_LARGE.format(pages=total_pages, max=HARD_REJECT_PAGES),
             )
             return
 
-        tier = decide_model_tier(max_pages)
+        tier = decide_model_tier(total_pages)
         if tier is None:  # defense-in-depth; the >HARD branch should catch this first
             await first.answer(
-                MSG_TOO_LARGE.format(pages=max_pages, max=HARD_REJECT_PAGES),
+                MSG_TOO_LARGE.format(pages=total_pages, max=HARD_REJECT_PAGES),
             )
             return
 

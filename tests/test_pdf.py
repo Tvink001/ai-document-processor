@@ -19,7 +19,7 @@ from bot.services.pdf import (
 
 
 @pytest.mark.parametrize(
-    ("pages", "expected"),
+    ("total_pages", "expected"),
     [
         (0, "haiku"),
         (1, "haiku"),
@@ -34,8 +34,8 @@ from bot.services.pdf import (
         (500, None),
     ],
 )
-def test_decide_model_tier_boundaries(pages: int, expected: str | None) -> None:
-    assert decide_model_tier(pages) == expected
+def test_decide_model_tier_boundaries(total_pages: int, expected: str | None) -> None:
+    assert decide_model_tier(total_pages) == expected
 
 
 def test_count_pages_one_page_pdf(tmp_path: Path) -> None:

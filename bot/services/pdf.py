@@ -39,19 +39,20 @@ def count_pages(path: Path) -> int:
         return len(reader.pages)
 
 
-def decide_model_tier(max_page_count: int) -> ModelTier | None:
-    """Pick a Claude tier for a batch whose largest PDF has `max_page_count` pages.
+def decide_model_tier(total_page_count: int) -> ModelTier | None:
+    """Pick a Claude tier for a batch whose PDFs sum to `total_page_count` pages.
 
-    Routing the WHOLE batch by the LARGEST file is safe-by-design: a
-    Haiku call must fit every PDF in its context window simultaneously,
-    so the worst-case file sets the floor.
+    Anthropic receives ALL PDFs in a single Messages API request, so the
+    SUM of pages drives the context budget — not the max. A 6×30-page
+    session is 180 pages of context, well beyond Haiku's 200K window
+    even though no individual file is large.
     """
-    if max_page_count <= 0:
+    if total_page_count <= 0:
         return "haiku"
-    if max_page_count <= HAIKU_MAX_PAGES:
+    if total_page_count <= HAIKU_MAX_PAGES:
         return "haiku"
-    if max_page_count <= SONNET_MAX_PAGES:
+    if total_page_count <= SONNET_MAX_PAGES:
         return "sonnet"
-    if max_page_count <= OPUS_MAX_PAGES:
+    if total_page_count <= OPUS_MAX_PAGES:
         return "opus"
     return None
