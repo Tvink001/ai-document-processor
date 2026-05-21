@@ -30,6 +30,8 @@ def test_submit_files_request_round_trip() -> None:
     assert body["files"][0]["page_count"] == 12
     assert body["target_folder_id"]
     assert body["callback_url"].startswith("https://")
+    assert body["user_id"] == 0  # default; overridden by handler in real flow
+    assert body["username"] == ""
 
 
 def test_submit_files_rejects_bad_tier() -> None:

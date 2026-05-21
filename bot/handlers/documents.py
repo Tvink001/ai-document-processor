@@ -142,6 +142,9 @@ async def _send_pdf_to_processor(
             target_folder_name=user.current_folder_name,
             model_tier=tier,
             callback_url=callback_url,
+            user_id=first.from_user.id,
+            username=first.from_user.username or "",
+            first_name=first.from_user.first_name or "",
         )
 
         await n8n.submit_files(payload)

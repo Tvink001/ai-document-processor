@@ -43,6 +43,10 @@ class SubmitFilesRequest(BaseModel):
     target_folder_name: str = ""
     model_tier: ModelTier
     callback_url: str
+    # Optional Telegram metadata — flows into the `sessions` Sheet tab.
+    user_id: int = 0  # falls back to chat_id when 0
+    username: str = ""
+    first_name: str = ""
 
 
 class N8nClient:
