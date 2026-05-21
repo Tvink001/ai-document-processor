@@ -34,6 +34,17 @@ desktop.ini
 *.swp
 *~
 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
 # Build / temp
 dist/
 build/

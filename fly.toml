@@ -1,0 +1,30 @@
+app = "p3-bot-frontend"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  MODE = "webhook"
+  WEB_HOST = "0.0.0.0"
+  WEB_PORT = "8080"
+  GOOGLE_SERVICE_ACCOUNT_PATH = "/app/secrets/credentials.json"
+  LOG_LEVEL = "INFO"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.checks.health]
+    grace_period = "20s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"
+
+[[mounts]]
+  source = "p3_bot_secrets"
+  destination = "/app/secrets"

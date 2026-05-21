@@ -1,0 +1,16 @@
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: p3-bot-frontend:dev
+    container_name: p3-bot-frontend
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./bot/secrets:/app/secrets:ro
+    environment:
+      GOOGLE_SERVICE_ACCOUNT_PATH: /app/secrets/credentials.json
