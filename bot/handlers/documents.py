@@ -69,6 +69,13 @@ MSG_QUEUED_TEMPLATE = (
 MSG_DEDUP_TEMPLATE = (
     "♻ {dup} дубликат(ов) пропущено (тот же MD5). Обрабатываю {keep} уникальных."
 )
+MSG_CROSS_SESSION_DEDUP = (
+    "♻ {n} файл(ов) уже обработаны раньше — переиспользую (без вызова Claude):\n"
+    "{lines}"
+)
+MSG_ALL_DEDUP = (
+    "♻ Все {n} файл(ов) уже обработаны раньше. Ничего нового не отправляю."
+)
 
 
 async def _send_pdf_to_processor(
@@ -117,9 +124,7 @@ async def _send_pdf_to_processor(
                 ),
             )
 
-        # In-batch dedup: identical MD5s = same content → keep first occurrence,
-        # drop the rest. Saves Anthropic spend + avoids huge cumulative-page
-        # routing (6 identical 23pp files should be 1 haiku call, not 138pp opus).
+        # 1) In-batch dedup: identical MD5s = same content → keep first.
         seen: set[str] = set()
         deduped: list[FileRef] = []
         for f in files_meta:
@@ -136,6 +141,37 @@ async def _send_pdf_to_processor(
             )
         if not files_meta:
             return
+
+        # 2) Cross-session dedup: check the `statements` Sheet for prior
+        # statement_id (MD5) under this chat_id. Skip Claude for matches.
+        already: list[tuple[FileRef, dict[str, str]]] = []
+        fresh: list[FileRef] = []
+        for f in files_meta:
+            existing = await sheets.find_statement_for_chat(chat_id, f.md5) if f.md5 else None
+            if existing:
+                already.append((f, existing))
+            else:
+                fresh.append(f)
+        if already:
+            lines = []
+            for f, e in already:
+                bank = e.get("bank") or "?"
+                period = (
+                    f"{e.get('period_start') or '?'} – {e.get('period_end') or '?'}"
+                )
+                url = e.get("drive_url") or ""
+                if url:
+                    lines.append(f"• {f.file_name}: {bank} ({period}) — PDF в Drive: {url}")
+                else:
+                    lines.append(f"• {f.file_name}: {bank} ({period})")
+            await first.answer(
+                MSG_CROSS_SESSION_DEDUP.format(n=len(already), lines="\n".join(lines)),
+                disable_web_page_preview=True,
+            )
+        if not fresh:
+            await first.answer(MSG_ALL_DEDUP.format(n=len(already)))
+            return
+        files_meta = fresh
 
         total_pages = sum(f.page_count for f in files_meta)
         if total_pages > HARD_REJECT_PAGES:

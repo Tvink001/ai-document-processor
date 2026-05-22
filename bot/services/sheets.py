@@ -269,3 +269,42 @@ class SheetsService:
             if col_idx < len(row) and row[col_idx] == folder_id:
                 return i
         return None
+
+    # ---------- statements (read-only — n8n WF03b owns writes) ----------
+
+    async def find_statement_for_chat(
+        self,
+        chat_id: int,
+        md5: str,
+    ) -> dict[str, str] | None:
+        """Return the first existing `statements` row where statement_id == md5
+        AND the row was produced for this chat_id. Used for cross-session dedup
+        in the Python intake handler: if a user re-uploads the same PDF in a
+        new Telegram message, skip the Claude call entirely.
+
+        chat_id matching is via the `session_id` prefix convention
+        (`<chat_id>_<unix_ms>`). The `statements` sheet has no dedicated
+        chat_id column today.
+        """
+        try:
+            ws = self._sh.worksheet("statements")
+        except WorksheetNotFound:
+            return None
+        rows = await asyncio.to_thread(ws.get_all_records, head=1)
+        chat_prefix = f"{chat_id}_"
+        for r in rows:
+            if str(r.get("statement_id") or "") != md5:
+                continue
+            sess = str(r.get("session_id") or "")
+            if not sess.startswith(chat_prefix):
+                continue
+            return {
+                "session_id": sess,
+                "statement_id": str(r.get("statement_id") or ""),
+                "bank": str(r.get("bank") or ""),
+                "period_start": str(r.get("period_start") or ""),
+                "period_end": str(r.get("period_end") or ""),
+                "drive_url": str(r.get("drive_url") or ""),
+                "processed_at": str(r.get("processed_at") or ""),
+            }
+        return None
