@@ -58,3 +58,4 @@ test-data/**/*.zip
 test-data/**/*.xlsx
 test-data/scratch/
 .mcp.json
+.claude/
