@@ -7,7 +7,7 @@ secrets/
 *-credentials.json
 service-account*.json
 
-# Node / npm (n8n MCP)
+# Node / npm
 node_modules/
 npm-debug.log*
 yarn-debug.log*
@@ -51,11 +51,9 @@ build/
 tmp/
 *.tmp
 
-# Local golden dataset — only PDFs are gitignored; README + JSON sidecars committed
+# Local golden dataset — PDFs gitignored; README + JSON sidecars stay tracked
 test-data/golden/*.pdf
 test-data/golden/*.PDF
 test-data/**/*.zip
 test-data/**/*.xlsx
 test-data/scratch/
-.mcp.json
-.claude/
