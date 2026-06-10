@@ -1,8 +1,6 @@
 # AI Document Processor
 > A Telegram bot that takes one to six mixed PDF/DOCX/scans and returns a renamed, sorted, deduplicated ZIP archive in about a minute — with a follow-up letter drafted if anything is missing.
 
-**Live demo:** [LIVE_DEMO_URL]
-
 ![60-second flow: 6 files in → ZIP archive out](docs/screenshots/demo.gif)
 
 ## Overview
