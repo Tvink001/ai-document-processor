@@ -51,9 +51,11 @@ build/
 tmp/
 *.tmp
 
-# Local golden dataset — PDFs gitignored; README + JSON sidecars stay tracked
-test-data/golden/*.pdf
-test-data/golden/*.PDF
+# Local test data — real bank statements are private; never commit any test PDFs
+test-data/*.pdf
+test-data/*.PDF
+test-data/**/*.pdf
+test-data/**/*.PDF
 test-data/**/*.zip
 test-data/**/*.xlsx
 test-data/scratch/
