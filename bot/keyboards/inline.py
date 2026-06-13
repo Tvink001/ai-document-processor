@@ -18,15 +18,15 @@ def main_menu_no_folder() -> InlineKeyboardMarkup:
     """Three buttons shown when the user is in Drive root."""
     kb = InlineKeyboardBuilder()
     kb.button(
-        text="📄 Отправить документ",
+        text="📄 Send document",
         callback_data=NavCB(action="send_info").pack(),
     )
     kb.button(
-        text="📁 Создать папку",
+        text="📁 Create folder",
         callback_data=FolderCB(action="create").pack(),
     )
     kb.button(
-        text="📂 Открыть существующую",
+        text="📂 Open existing",
         callback_data=FolderCB(action="list").pack(),
     )
     kb.adjust(1)
@@ -37,19 +37,19 @@ def main_menu_with_folder(folder_name: str) -> InlineKeyboardMarkup:
     """Four buttons shown when the user is currently inside a folder."""
     kb = InlineKeyboardBuilder()
     kb.button(
-        text=f"📄 Отправить в «{folder_name}»",
+        text=f"📄 Send to «{folder_name}»",
         callback_data=NavCB(action="send_info").pack(),
     )
     kb.button(
-        text="📁 Создать новую папку",
+        text="📁 Create new folder",
         callback_data=FolderCB(action="create").pack(),
     )
     kb.button(
-        text="📂 Сменить папку",
+        text="📂 Switch folder",
         callback_data=FolderCB(action="list").pack(),
     )
     kb.button(
-        text="🚪 Выйти в корень",
+        text="🚪 Back to root",
         callback_data=FolderCB(action="leave").pack(),
     )
     kb.adjust(1)
@@ -65,7 +65,7 @@ def folder_picker(folders: list[FolderRecord]) -> InlineKeyboardMarkup:
             callback_data=FolderCB(action="pick", folder_id=f.folder_id).pack(),
         )
     kb.button(
-        text="✖ Отмена",
+        text="✖ Cancel",
         callback_data=NavCB(action="cancel").pack(),
     )
     kb.adjust(1)

@@ -33,19 +33,19 @@ logger = logging.getLogger(__name__)
 folders_router = Router()
 
 MSG_ASK_NAME = (
-    "Как назовём папку? Напиши короткое имя (например: Candidate 1, "
-    "Иван Петренко, ООО Рога и Копыта)."
+    "What should we name the folder? Send a short name (e.g. Candidate 1, "
+    "John Smith, Acme LLC)."
 )
-MSG_NAME_TOO_SHORT = "Имя слишком короткое. Хотя бы 2 символа."
-MSG_NAME_TOO_LONG = "Имя слишком длинное. Не больше 80 символов."
+MSG_NAME_TOO_SHORT = "Name too short. At least 2 characters."
+MSG_NAME_TOO_LONG = "Name too long. 80 characters max."
 MSG_NAME_BAD_CHARS = (
-    "В имени остались только пробелы или непечатные символы. Попробуй ещё раз."
+    "The name has only spaces or non-printable characters. Please try again."
 )
-MSG_CREATE_FAILED = "Не удалось создать папку. Попробуй ещё раз чуть позже."
-MSG_NO_FOLDERS = "У тебя пока нет папок. Создай первую кнопкой выше."
-MSG_PICK_FOLDER = "Выбери папку для работы:"
-MSG_LEFT_FOLDER = "Вышел из папки — теперь файлы будут попадать прямо в архив."
-MSG_FOLDER_GONE = "Эта папка больше недоступна (возможно, её удалили в Drive)."
+MSG_CREATE_FAILED = "Couldn't create the folder. Please try again in a moment."
+MSG_NO_FOLDERS = "You don't have any folders yet. Create your first with the button above."
+MSG_PICK_FOLDER = "Pick a folder to work in:"
+MSG_LEFT_FOLDER = "Left the folder — files will now go straight to the archive."
+MSG_FOLDER_GONE = "This folder is no longer available (it may have been deleted in Drive)."
 
 # Drive folder name conventions: trim, collapse whitespace, reject control chars.
 _NAME_BAD_RE = re.compile(r"[\x00-\x1f\x7f]")
@@ -109,9 +109,9 @@ async def on_create_name_entered(
     )
     await state.clear()
     await message.answer(
-        f"✅ Папка <b>{folder.name}</b> создана и активна.\n"
+        f"✅ Folder <b>{folder.name}</b> created and active.\n"
         f"<a href=\"{folder.url}\">Открыть в Drive</a>\n\n"
-        "Теперь PDF-файлы будут попадать в неё.",
+        "PDFs will now go into it.",
         reply_markup=main_reply_with_folder(folder.name),
         disable_web_page_preview=True,
     )
@@ -141,7 +141,7 @@ async def on_pick(
 ) -> None:
     folder_id = callback_data.folder_id
     if not folder_id:
-        await query.answer("Не удалось определить папку", show_alert=True)
+        await query.answer("Couldn't identify the folder", show_alert=True)
         return
     if not isinstance(query.message, Message):
         await query.answer()
@@ -165,11 +165,11 @@ async def on_pick(
         folder_name=picked.folder_name,
     )
     await sheets.touch_folder(picked.folder_id)
-    await query.answer(f"Активная папка: {picked.folder_name}")
+    await query.answer(f"Active folder: {picked.folder_name}")
     if isinstance(query.message, Message):
         await query.message.answer(
-            f"📂 Активная папка: <b>{picked.folder_name}</b>\n"
-            f"<a href=\"{picked.drive_url}\">Открыть в Drive</a>",
+            f"📂 Active folder: <b>{picked.folder_name}</b>\n"
+            f"<a href=\"{picked.drive_url}\">Open in Drive</a>",
             reply_markup=main_reply_with_folder(picked.folder_name),
             disable_web_page_preview=True,
         )
@@ -185,7 +185,7 @@ async def on_leave(query: CallbackQuery, sheets: SheetsService) -> None:
         folder_id="",
         folder_name="",
     )
-    await query.answer("Вышли из папки")
+    await query.answer("Left the folder")
     await query.message.answer(
         MSG_LEFT_FOLDER,
         reply_markup=main_reply_no_folder(),

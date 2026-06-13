@@ -88,10 +88,10 @@ async def _run() -> None:
 
     # Register the slash-command menu (the "/" button in Telegram chat).
     await bot.set_my_commands([
-        BotCommand(command="start", description="Главное меню"),
-        BotCommand(command="menu", description="Показать кнопки заново"),
-        BotCommand(command="cancel", description="Отменить текущее действие"),
-        BotCommand(command="help", description="Что я умею"),
+        BotCommand(command="start", description="Main menu"),
+        BotCommand(command="menu", description="Show buttons again"),
+        BotCommand(command="cancel", description="Cancel current action"),
+        BotCommand(command="help", description="What I can do"),
     ])
 
     logger.info(

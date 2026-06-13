@@ -29,16 +29,16 @@ logger = logging.getLogger(__name__)
 start_router = Router()
 
 WELCOME = (
-    "Привет, я P3 — парсер банковских выписок.\n\n"
-    "Пришли мне PDF (или несколько) — я разнесу транзакции по категориям "
-    "и верну Excel с цветной разметкой неуверенных строк.\n\n"
-    "Если работаешь с разными клиентами — создай папку, и все файлы "
-    "будут аккуратно сложены в неё на Drive."
+    "Hi, I'm P3 — a bank-statement parser.\n\n"
+    "Send me a PDF (or several) — I'll sort the transactions into categories "
+    "and return an Excel with low-confidence rows highlighted.\n\n"
+    "Working with different clients? Create a folder and every file "
+    "will be tidied into it on Drive."
 )
 
 SEND_INFO_HINT = (
-    "📎 Просто перетащи PDF в этот чат. Можно сразу несколько "
-    "(до 6 за один раз) — обработаю пачкой."
+    "📎 Just drop a PDF into this chat. You can send several at once "
+    "(up to 6) — I'll process them as a batch."
 )
 
 
@@ -50,7 +50,7 @@ async def _menu_for_user(
     user = await sheets.get_user(chat_id)
     if user and user.current_folder_id:
         return (
-            f"📂 Текущая папка: <b>{user.current_folder_name}</b>",
+            f"📂 Current folder: <b>{user.current_folder_name}</b>",
             main_reply_with_folder(user.current_folder_name),
         )
     return (WELCOME, main_reply_no_folder())
@@ -71,7 +71,7 @@ async def cmd_start(
         first_name=message.from_user.first_name or "",
     )
     if user.current_folder_id:
-        text = f"📂 Текущая папка: <b>{user.current_folder_name}</b>"
+        text = f"📂 Current folder: <b>{user.current_folder_name}</b>"
         reply_kb = main_reply_with_folder(user.current_folder_name)
     else:
         text = WELCOME
@@ -89,27 +89,27 @@ async def cmd_menu(message: Message, sheets: SheetsService) -> None:
 async def cmd_cancel(message: Message, state: FSMContext, sheets: SheetsService) -> None:
     await state.clear()
     text, kb = await _menu_for_user(sheets, message.chat.id)
-    await message.answer("Отменено. " + text, reply_markup=kb)
+    await message.answer("Cancelled. " + text, reply_markup=kb)
 
 
 @start_router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
     await message.answer(
-        "Я парсю украинские банковские выписки.\n\n"
-        "📄 Просто перетащи PDF в чат — я разнесу транзакции по категориям и "
-        "верну Excel с подсветкой неуверенных строк.\n\n"
-        "Команды:\n"
-        "• /start — главное меню\n"
-        "• /menu — то же меню (sticky кнопки)\n"
-        "• /cancel — прервать ввод (например, имя папки)\n"
-        "• /help — это сообщение",
+        "I parse Ukrainian bank statements.\n\n"
+        "📄 Just drop a PDF into the chat — I'll sort transactions into categories and "
+        "return an Excel with low-confidence rows highlighted.\n\n"
+        "Commands:\n"
+        "• /start — main menu\n"
+        "• /menu — same menu (sticky buttons)\n"
+        "• /cancel — abort input (e.g. a folder name)\n"
+        "• /help — this message",
     )
 
 
 # Reply-keyboard text routing — F.text matches the literal button label.
 
 @start_router.message(F.text == BTN_SEND)
-@start_router.message(F.text.startswith("📄 В «"))
+@start_router.message(F.text.startswith("📄 Send to «"))
 async def on_send_reply(message: Message) -> None:
     await message.answer(SEND_INFO_HINT)
 
@@ -142,7 +142,7 @@ async def on_leave_reply(message: Message, sheets: SheetsService) -> None:
         folder_name="",
     )
     await message.answer(
-        "Вышел из папки — теперь файлы будут попадать прямо в архив.",
+        "Left the folder — files will now go straight to the archive.",
         reply_markup=main_reply_no_folder(),
     )
 
@@ -157,7 +157,7 @@ async def on_send_info(query: CallbackQuery) -> None:
 @start_router.callback_query(NavCB.filter(F.action == "cancel"))
 async def on_cancel(query: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    await query.answer("Отменено")
+    await query.answer("Cancelled")
     if isinstance(query.message, Message):
         try:
             await query.message.edit_reply_markup(reply_markup=None)

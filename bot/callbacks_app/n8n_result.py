@@ -63,17 +63,17 @@ def build_app(bot: Bot) -> FastAPI:
 
         if payload.error:
             text = (
-                "⚠ Не удалось обработать сессию.\n"
+                "⚠ Couldn't process the session.\n"
                 f"<code>{payload.error[:300]}</code>"
             )
         elif payload.xlsx_url:
-            body = payload.summary.strip() or "Готово."
+            body = payload.summary.strip() or "Done."
             text = (
                 f"✅ {body}\n\n"
-                f"<a href=\"{payload.xlsx_url}\">Открыть Excel</a>"
+                f"<a href=\"{payload.xlsx_url}\">Open Excel</a>"
             )
         else:
-            text = payload.summary.strip() or "✅ Готово (без файла)."
+            text = payload.summary.strip() or "✅ Done (no file)."
 
         try:
             await bot.send_message(

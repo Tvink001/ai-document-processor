@@ -15,10 +15,10 @@ from __future__ import annotations
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 
 # Button labels — handlers match on these exact strings via F.text.
-BTN_SEND = "📄 Отправить документ"
-BTN_CREATE = "📁 Создать папку"
-BTN_OPEN = "📂 Открыть папку"
-BTN_LEAVE = "🚪 Выйти в корень"
+BTN_SEND = "📄 Send document"
+BTN_CREATE = "📁 Create folder"
+BTN_OPEN = "📂 Open folder"
+BTN_LEAVE = "🚪 Back to root"
 
 
 def main_reply_no_folder() -> ReplyKeyboardMarkup:
@@ -29,7 +29,7 @@ def main_reply_no_folder() -> ReplyKeyboardMarkup:
         ],
         resize_keyboard=True,
         is_persistent=True,
-        input_field_placeholder="Перетащи PDF или выбери действие…",
+        input_field_placeholder="Drop a PDF or pick an action…",
     )
 
 
@@ -43,5 +43,5 @@ def main_reply_with_folder(folder_name: str) -> ReplyKeyboardMarkup:
         ],
         resize_keyboard=True,
         is_persistent=True,
-        input_field_placeholder=f"📂 {short} — перетащи PDF…",
+        input_field_placeholder=f"📂 {short} — drop a PDF…",
     )

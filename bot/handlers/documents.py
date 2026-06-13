@@ -51,30 +51,30 @@ _pending: dict[str, list[Message]] = {}
 _pending_lock = asyncio.Lock()
 
 MSG_NOT_PDF = (
-    "Я обрабатываю только PDF. Если у тебя другой формат — экспортируй "
-    "выписку в PDF из приложения банка."
+    "I only handle PDFs. If yours is a different format — export the "
+    "statement to PDF from your bank app."
 )
 MSG_TOO_MANY = (
-    "Слишком много файлов за раз (максимум {max}). Раздели на несколько "
-    "сообщений, пожалуйста."
+    "Too many files at once (max {max}). Please split them across a few "
+    "messages."
 )
 MSG_TOO_LARGE = (
-    "Этот файл слишком большой ({pages} стр). Hard cap — {max} стр.\n"
-    "Разбей PDF пополам и пришли двумя сообщениями, пожалуйста."
+    "This file is too large ({pages} pages). Hard cap — {max} pages.\n"
+    "Please split the PDF in half and send it as two messages."
 )
 MSG_QUEUED_TEMPLATE = (
-    "🔄 Принято {count} файл(ов), {pages} стр. суммарно.\n"
-    "Маршрутизирую через {tier} — пришлю Excel, как только готов."
+    "🔄 Received {count} file(s), {pages} pages total.\n"
+    "Routing via {tier} — I'll send the Excel as soon as it's ready."
 )
 MSG_DEDUP_TEMPLATE = (
-    "♻ {dup} дубликат(ов) пропущено (тот же MD5). Обрабатываю {keep} уникальных."
+    "♻ {dup} duplicate(s) skipped (same MD5). Processing {keep} unique."
 )
 MSG_CROSS_SESSION_DEDUP = (
-    "♻ {n} файл(ов) уже обработаны раньше — переиспользую (без вызова Claude):\n"
+    "♻ {n} file(s) already processed earlier — reusing them (no Claude call):\n"
     "{lines}"
 )
 MSG_ALL_DEDUP = (
-    "♻ Все {n} файл(ов) уже обработаны раньше. Ничего нового не отправляю."
+    "♻ All {n} file(s) were already processed earlier. Nothing new to send."
 )
 
 
@@ -161,7 +161,7 @@ async def _send_pdf_to_processor(
                 )
                 url = e.get("drive_url") or ""
                 if url:
-                    lines.append(f"• {f.file_name}: {bank} ({period}) — PDF в Drive: {url}")
+                    lines.append(f"• {f.file_name}: {bank} ({period}) — PDF in Drive: {url}")
                 else:
                     lines.append(f"• {f.file_name}: {bank} ({period})")
             await first.answer(
@@ -225,7 +225,7 @@ async def _send_pdf_to_processor(
         )
     except Exception:
         logger.exception("documents._send_pdf_to_processor crashed")
-        await first.answer("Что-то пошло не так на стороне n8n. Попробуй ещё раз.")
+        await first.answer("Something went wrong on the n8n side. Please try again.")
     finally:
         for p in tmp_paths:
             try:
