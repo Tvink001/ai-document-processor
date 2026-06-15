@@ -4,7 +4,9 @@
 
 ## Demo
 
-<!-- Loom walkthrough: link added after recording -->
+![Statement to Excel demo](docs/screenshots/demo.gif)
+
+*A signed Privat24 PDF dropped into Telegram -> the bot detects the bank, extracts every transaction, and replies with a categorized Excel: a Summary of totals and top categories, plus the low-confidence rows flagged for review.*
 
 ## Overview
 
@@ -13,17 +15,17 @@ Outsource accountants serving 10–30 ФОПів each spend one to three hours p
 Example reply:
 
 ```
-✅ Обработано 142 транзакции за период 01.01.2026–31.01.2026 (Privat24).
+✅ Processed 52 transactions for 2026-05-01 – 2026-05-31 (Privat24).
 
-💸 Расходы: 47 320 UAH
-💰 Доходы: 65 000 UAH
+💸 Expenses: 16 623 UAH
+💰 Income: 23 456 UAH
 
-📊 Топ-3 категории:
-• Продукти: 12 450 UAH
-• Транспорт: 6 200 UAH
-• Зв'язок: 1 800 UAH
+📊 Top 3 categories:
+• Продукти: 5 491 UAH
+• Інше: 5 249 UAH
+• Особисті перекази: 4 617 UAH
 
-⚠ 3 транзакции требуют проверки (отмечены жёлтым в Excel).
+⚠ 9 transactions need review (highlighted yellow in the Excel).
 
 📥 Excel: https://drive.google.com/.../session_a3f7.xlsx
 ```
